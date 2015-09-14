@@ -1,12 +1,13 @@
 require 'nn'
 require 'nngraph'
 
-LSTM = require 'LSTM.lua'
+LSTM = require 'LSTM'
+-- KarpathyLSTM = require 'KarpathyLSTM'
 
 Controller, parent = torch.class('nn.Controller')
 
 
-function Controller:__init(input_size, num_units_per_layer, num_layers)
+function Controller:__init(input_size, num_units_per_layer, num_layers, dropout)
     self.input_size = input_size
     self.num_units_per_layer = num_units_per_layer
 
@@ -21,14 +22,20 @@ function Controller:__init(input_size, num_units_per_layer, num_layers)
                 torch.zeros(self.num_units_per_layer),  -- prev_c
                 torch.zeros(self.num_units_per_layer),  -- prev_h
             }
-        table.insert(first_state, layer_state)
+        table.insert(self.state, layer_state)
     end
-    table.insert(self.state, first_state)
+    -- table.insert(self.state, first_state)
 
     self.network = {}
-    for i = 1, num_layers do
-        table.insert(network,
-            LSTM.create(self.input_size, self.num_units_per_layer))
+
+    -- create the input layer with different input size
+    -- table.insert(network,
+    --     KarpathyLSTM.create(self.input_size, self.num_units_per_layer, 1, dropout))
+    table.insert(self.network,
+        LSTM.create(self.input_size, self.num_units_per_layer))
+    for i = 2, num_layers do
+        table.insert(self.network,
+            LSTM.create(self.num_units_per_layer, self.num_units_per_layer, 1, dropout))
     end
 
 end
@@ -47,6 +54,7 @@ function Controller:step(input)
                 self.state[i][2],  -- prev_h for this layer
             }
 
+        print("inputs for layer ".. i, inputs[1])
         output = self.network[i]:forward(inputs)
 
         -- the trace for this layer at this step is just a table of its
@@ -73,7 +81,7 @@ function Controller:step(input)
 end
 
 
-function Controller:backward(inputs, gradOutputs)
+function Controller:backward(inputs, grad_outputs)
     local current_gradOutput
 
     -- make a set of zero gradients for the timestep after the last one
@@ -102,7 +110,7 @@ function Controller:backward(inputs, gradOutputs)
             -- that does something else) so that outside thing must provide the
             -- gradient
             if i == #self.network then
-                current_gradOutput = gradOutputs[timestep]
+                current_gradOutput = grad_outputs[timestep]
             end
 
 
@@ -242,6 +250,36 @@ function Controller:zeroGradParameters()
         self.network[i]:zeroGradParameters()
     end
 end
+
+function Controller:getParameters()
+    local params, grad_params
+    -- local grad_params = torch.Tensor()
+    for i = 1, #self.network do
+        local layer_params, layer_grad_params = self.network[i]:getParameters()
+        if i == 1 then
+            params = layer_params:clone()
+            grad_params = layer_grad_params:clone()
+        else
+            torch.cat(params, layer_params)
+            torch.cat(grad_params, layer_grad_params)
+        end
+    end
+    return params, grad_params
+end
+
+function Controller:training()
+    for i = 1, #self.network do
+        self.network[i]:training()
+    end
+end
+
+function Controller:evaluate()
+    for i = 1, #self.network do
+        self.network[i]:evaluate()
+    end
+end
+
+
 
 --
 -- -- 3-layer LSTM network (input and output have 3 dimensions)

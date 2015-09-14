@@ -1,32 +1,204 @@
 require 'nn'
 require 'gnuplot'
+require 'optim'
+require 'nngraph'
 
 require 'tools'
 require 'vis'
 
-require 'problems'
+require 'utils'
+require 'OneHot'
+local CharSplitLMMinibatchLoader = require 'CharSplitLMMinibatchLoader'
 
-torch.manualSeed(1)
+require 'Controller'
 
-SCORE_DECAY = 0.1
-BATCH_SIZE = 1000
+cmd = torch.CmdLine()
+cmd:text()
+cmd:text('Train a character-level language model')
+cmd:text()
+cmd:text('Options')
+-- data
+cmd:option('-data_dir','data/tinyshakespeare','data directory. Should contain the file input.txt with input data')
+-- model params
+cmd:option('-rnn_size', 128, 'size of LSTM internal state')
+cmd:option('-num_layers', 2, 'number of layers in the LSTM')
+cmd:option('-model', 'lstm', 'lstm,gru or rnn')
+-- optimization
+cmd:option('-learning_rate',2e-3,'learning rate')
+cmd:option('-learning_rate_decay',0.97,'learning rate decay')
+cmd:option('-learning_rate_decay_after',10,'in number of epochs, when to start decaying the learning rate')
+cmd:option('-decay_rate',0.95,'decay rate for rmsprop')
+cmd:option('-dropout',0,'dropout for regularization, used after each RNN hidden layer. 0 = no dropout')
+cmd:option('-seq_length',50,'number of timesteps to unroll for')
+cmd:option('-batch_size',50,'number of sequences to train on in parallel')
+cmd:option('-max_epochs',50,'number of full passes through the training data')
+cmd:option('-grad_clip',5,'clip gradients at this value')
+cmd:option('-train_frac',0.95,'fraction of data that goes into train set')
+cmd:option('-val_frac',0.05,'fraction of data that goes into validation set')
+            -- test_frac will be computed as (1 - train_frac - val_frac)
+cmd:option('-init_from', '', 'initialize network parameters from checkpoint at this path')
+-- bookkeeping
+cmd:option('-seed',123,'torch manual random number generator seed')
+cmd:option('-print_every',1,'how many steps/minibatches between printing out the loss')
+cmd:option('-eval_val_every',1000,'every how many iterations should we evaluate on validation data?')
+cmd:option('-checkpoint_dir', 'cv', 'output directory where checkpoints get written')
+cmd:option('-savefile','lstm','filename to autosave the checkpont to. Will be inside checkpoint_dir/')
+-- GPU/CPU
+cmd:option('-gpuid',-1,'which gpu to use. -1 = use CPU')
+cmd:option('-opencl',0,'use OpenCL (instead of CUDA)')
+cmd:text()
 
-LEARNING_RATE = 0.1
+-- parse input params
+opt = cmd:parse(arg)
+torch.manualSeed(opt.seed)
+
+local test_frac = math.max(0, 1 - (opt.train_frac + opt.val_frac))
+local split_sizes = {opt.train_frac, opt.val_frac, test_frac}
+
+-- create the data loader class
+local loader = CharSplitLMMinibatchLoader.create(opt.data_dir, opt.batch_size, opt.seq_length, split_sizes)
+local vocab_size = loader.vocab_size  -- the number of distinct characters
+local vocab = loader.vocab_mapping
+print('vocab size: ' .. vocab_size)
 
 
--- lin = vn.layers[1].container.modules[1].modules[1]
--- lin.weight
--- inputTensor = torch.zeros(10)
--- targetTensor = torch.rand(10)
+local controller = nn.Controller(vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
+local criterion = nn.ClassNLLCriterion()
+local one_hot = OneHot(vocab_size)
 
--- print(vn.layers[1].container)
+local params, grad_params = controller:getParameters()
+params:uniform(-0.08, 0.08) -- small numbers uniform
 
-torch.manualSeed(1)
+-- do fwd/bwd and return loss, grad_params
+function feval(x)
+    if x ~= params then
+        params:copy(x)
+    end
+    grad_params:zero()
 
-STEPS = 1000000
+    ------------------ get minibatch -------------------
+    local x, y = loader:next_batch(1)
+    if opt.gpuid >= 0 and opt.opencl == 0 then -- ship the input arrays to GPU
+        -- have to convert to float because integers can't be cuda()'d
+        x = x:float():cuda()
+        y = y:float():cuda()
+    end
+    if opt.gpuid >= 0 and opt.opencl == 1 then -- ship the input arrays to GPU
+        x = x:cl()
+        y = y:cl()
+    end
+    ------------------- forward pass -------------------
+    local predictions = {}           -- softmax outputs
+    local grad_outputs = {}
+    local loss = 0
 
-scores = torch.Tensor(STEPS)
-probAvg = 0
+    controller:training() -- make sure we are in correct mode (this is cheap, sets flag)
+    for t=1,opt.seq_length do
+        -- print(x[{{}, t}], y[{{}, t}])
+        local input = one_hot:forward(x[{{}, t}])
+        predictions[t] = controller:step(input)
+        loss = loss + criterion:forward(predictions[t], y[{{}, t}])
+        grad_outputs[t] = criterion:backward(predictions[t], y[{{}, t}])
+    end
+    loss = loss / opt.seq_length
+    ------------------ backward pass -------------------
+    controller:backward(x, grad_outputs)
+
+    --[[
+    -- initialize gradient at time t to be zeros (there's no influence from future)
+    local drnn_state = {[opt.seq_length] = clone_list(init_state, true)} -- true also zeros the clones
+    for t=opt.seq_length,1,-1 do
+        -- backprop through loss, and softmax/linear
+        local doutput_t = clones.criterion[t]:backward(predictions[t], y[{{}, t}])
+        table.insert(drnn_state[t], doutput_t)
+        local dlst = clones.rnn[t]:backward({x[{{}, t}], unpack(rnn_state[t-1])}, drnn_state[t])
+        drnn_state[t-1] = {}
+        for k,v in pairs(dlst) do
+            if k > 1 then -- k == 1 is gradient on x, which we dont need
+                -- note we do k-1 because first item is dembeddings, and then follow the
+                -- derivatives of the state, starting at index 2. I know...
+                drnn_state[t-1][k-1] = v
+            end
+        end
+    end
+    --]]
+    ------------------------ misc ----------------------
+    -- transfer final state to initial state (BPTT)
+    -- init_state_global = rnn_state[#rnn_state] -- NOTE: I don't think this needs to be a clone, right?
+    -- clip gradient element-wise
+    grad_params:clamp(-opt.grad_clip, opt.grad_clip)
+    return loss, grad_params
+end
+
+
+train_losses = {}
+val_losses = {}
+local optim_state = {learningRate = opt.learning_rate, alpha = opt.decay_rate}
+local iterations = opt.max_epochs * loader.ntrain
+local iterations_per_epoch = loader.ntrain
+local loss0 = nil
+
+for i = 1, iterations do
+    local epoch = i / loader.ntrain
+
+    local timer = torch.Timer()
+    local _, loss = optim.rmsprop(feval, params, optim_state)
+    local time = timer:time().real
+
+    local train_loss = loss[1] -- the loss is inside a list, pop it
+    train_losses[i] = train_loss
+
+    -- exponential learning rate decay
+    if i % loader.ntrain == 0 and opt.learning_rate_decay < 1 then
+        if epoch >= opt.learning_rate_decay_after then
+            local decay_factor = opt.learning_rate_decay
+            optim_state.learningRate = optim_state.learningRate * decay_factor -- decay it
+            print('decayed learning rate by a factor ' .. decay_factor .. ' to ' .. optim_state.learningRate)
+        end
+    end
+
+    -- -- every now and then or on last iteration
+    -- if i % opt.eval_val_every == 0 or i == iterations then
+    --     -- evaluate loss on validation data
+    --     local val_loss = eval_split(2) -- 2 = validation
+    --     val_losses[i] = val_loss
+    --
+    --     local savefile = string.format('%s/lm_%s_epoch%.2f_%.4f.t7', opt.checkpoint_dir, opt.savefile, epoch, val_loss)
+    --     print('saving checkpoint to ' .. savefile)
+    --     local checkpoint = {}
+    --     checkpoint.protos = protos
+    --     checkpoint.opt = opt
+    --     checkpoint.train_losses = train_losses
+    --     checkpoint.val_loss = val_loss
+    --     checkpoint.val_losses = val_losses
+    --     checkpoint.i = i
+    --     checkpoint.epoch = epoch
+    --     checkpoint.vocab = loader.vocab_mapping
+    --     torch.save(savefile, checkpoint)
+    -- end
+
+    if i % opt.print_every == 0 then
+        print(string.format("%d/%d (epoch %.3f), train_loss = %6.8f, grad/param norm = %6.4e, time/batch = %.2fs", i, iterations, epoch, train_loss, grad_params:norm() / params:norm(), time))
+    end
+
+    if i % 10 == 0 then collectgarbage() end
+
+    -- handle early stopping if things are going really bad
+    if loss[1] ~= loss[1] then
+        print('loss is NaN.  This usually indicates a bug.  Please check the issues page for existing issues, or create a new issue, if none exist.  Ideally, please state: your operating system, 32-bit/64-bit, your blas version, cpu/cuda/cl?')
+        break -- halt
+    end
+    if loss0 == nil then loss0 = loss[1] end
+    if loss[1] > loss0 * 3 then
+        print('loss is exploding, aborting.')
+        break -- halt
+    end
+end
+
+
+
+
+--[[
 for i = 1, STEPS do
     -- input1 = math.random(1, 5)
     -- input2 = math.random(1, 5)
@@ -152,3 +324,4 @@ gnuplot.plot(scores, '-')
 --     snet:backward(sinputTensor, scriterion:backward(snet.output, starget))
 --     snet:updateParameters(0.01)
 -- end
+--]]
