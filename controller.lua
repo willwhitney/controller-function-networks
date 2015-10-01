@@ -4,7 +4,7 @@ require 'nngraph'
 LSTM = require 'LSTM'
 KarpathyLSTM = require 'KarpathyLSTM'
 
-Controller, parent = torch.class('nn.Controller')
+Controller, parent = torch.class('nn.Controller', 'nn.Module')
 
 
 function Controller:__init(input_size, num_units_per_layer, num_layers, dropout)
@@ -37,8 +37,8 @@ function Controller:reset()
     self.state = {}
     for i = 1, #self.network-1 do
         local layer_state = {
-                torch.zeros(1, self.num_units_per_layer),  -- prev_c
-                torch.zeros(1, self.num_units_per_layer),  -- prev_h
+                torch.zeros(opt.batch_size, self.num_units_per_layer),  -- prev_c
+                torch.zeros(opt.batch_size, self.num_units_per_layer),  -- prev_h
             }
         table.insert(self.state, layer_state)
     end
@@ -46,8 +46,8 @@ function Controller:reset()
     -- we're crushing this back down to the input space at the end,
     -- so the number of nodes in the last layer is different
     table.insert(self.state, {
-            torch.zeros(1, self.input_size),  -- prev_c
-            torch.zeros(1, self.input_size),  -- prev_h
+            torch.zeros(opt.batch_size, self.input_size),  -- prev_c
+            torch.zeros(opt.batch_size, self.input_size),  -- prev_h
         })
 
 end
@@ -247,17 +247,17 @@ function Controller:buildFinalGradient()
     local last_gradient = {}
     for i = 1, #self.network-1 do
         table.insert(last_gradient, {
-                torch.zeros(self.num_units_per_layer), -- dummy gradInput
-                torch.zeros(self.num_units_per_layer), -- dummy grad_prev_c
-                torch.zeros(self.num_units_per_layer), -- dummy grad_prev_h
+                torch.zeros(opt.batch_size, self.num_units_per_layer), -- dummy gradInput
+                torch.zeros(opt.batch_size, self.num_units_per_layer), -- dummy grad_prev_c
+                torch.zeros(opt.batch_size, self.num_units_per_layer), -- dummy grad_prev_h
             })
     end
 
     -- last layer is only input_size wide to shrink our output
     table.insert(last_gradient, {
-            torch.zeros(self.input_size), -- dummy gradInput
-            torch.zeros(self.input_size), -- dummy grad_prev_c
-            torch.zeros(self.input_size), -- dummy grad_prev_h
+            torch.zeros(opt.batch_size, self.input_size), -- dummy gradInput
+            torch.zeros(opt.batch_size, self.input_size), -- dummy grad_prev_c
+            torch.zeros(opt.batch_size, self.input_size), -- dummy grad_prev_h
         })
 
     return last_gradient
@@ -275,21 +275,44 @@ function Controller:zeroGradParameters()
     end
 end
 
-function Controller:getParameters()
-    local params, grad_params
-    -- local grad_params = torch.Tensor()
-    for i = 1, #self.network do
-        local layer_params, layer_grad_params = self.network[i]:getParameters()
-        if i == 1 then
-            params = layer_params:clone()
-            grad_params = layer_grad_params:clone()
+-- taken from nn.Container
+function Controller:parameters()
+    local function tinsert(to, from)
+        if type(from) == 'table' then
+            for i=1,#from do
+                tinsert(to,from[i])
+            end
         else
-            torch.cat(params, layer_params)
-            torch.cat(grad_params, layer_grad_params)
+            table.insert(to,from)
         end
     end
-    return params, grad_params
+    local w = {}
+    local gw = {}
+    for i=1,#self.network do
+        local mw,mgw = self.network[i]:parameters()
+        if mw then
+            tinsert(w,mw)
+            tinsert(gw,mgw)
+        end
+    end
+    return w,gw
 end
+
+-- function Controller:getParameters()
+--     local params, grad_params
+--     -- local grad_params = torch.Tensor()
+--     for i = 1, #self.network do
+--         local layer_params, layer_grad_params = self.network[i]:getParameters()
+--         if i == 1 then
+--             params = layer_params:clone()
+--             grad_params = layer_grad_params:clone()
+--         else
+--             torch.cat(params, layer_params)
+--             torch.cat(grad_params, layer_grad_params)
+--         end
+--     end
+--     return params, grad_params
+-- end
 
 function Controller:training()
     for i = 1, #self.network do

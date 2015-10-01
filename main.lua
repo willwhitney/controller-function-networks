@@ -21,7 +21,7 @@ cmd:text('Options')
 cmd:option('-data_dir','data/tinyshakespeare','data directory. Should contain the file input.txt with input data')
 -- model params
 cmd:option('-rnn_size', 128, 'size of LSTM internal state')
-cmd:option('-num_layers', 3, 'number of layers in the LSTM')
+cmd:option('-num_layers', 2, 'number of layers in the LSTM')
 cmd:option('-model', 'lstm', 'lstm,gru or rnn')
 -- optimization
 cmd:option('-learning_rate',2e-3,'learning rate')
@@ -30,7 +30,7 @@ cmd:option('-learning_rate_decay_after',10,'in number of epochs, when to start d
 cmd:option('-decay_rate',0.95,'decay rate for rmsprop')
 cmd:option('-dropout',0,'dropout for regularization, used after each RNN hidden layer. 0 = no dropout')
 cmd:option('-seq_length',50,'number of timesteps to unroll for')
-cmd:option('-batch_size',1,'number of sequences to train on in parallel')
+cmd:option('-batch_size',50,'number of sequences to train on in parallel')
 cmd:option('-max_epochs',50,'number of full passes through the training data')
 cmd:option('-grad_clip',5,'clip gradients at this value')
 cmd:option('-train_frac',0.95,'fraction of data that goes into train set')
@@ -41,6 +41,7 @@ cmd:option('-init_from', '', 'initialize network parameters from checkpoint at t
 cmd:option('-seed',123,'torch manual random number generator seed')
 cmd:option('-print_every',1,'how many steps/minibatches between printing out the loss')
 cmd:option('-eval_val_every',1000,'every how many iterations should we evaluate on validation data?')
+-- cmd:option('-eval_val_every',10,'every how many iterations should we evaluate on validation data?')
 cmd:option('-checkpoint_dir', 'cv', 'output directory where checkpoints get written')
 cmd:option('-savefile','lstm','filename to autosave the checkpont to. Will be inside checkpoint_dir/')
 -- GPU/CPU
@@ -64,21 +65,47 @@ print('vocab size: ' .. vocab_size)
 
 
 controller = nn.Controller(vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
-criterion = nn.ClassNLLCriterion()
+criterion = nn.CrossEntropyCriterion()
 one_hot = OneHot(vocab_size)
 
 local params, grad_params = controller:getParameters()
 params:uniform(-0.08, 0.08) -- small numbers uniform
 
--- function ascii(number)
---     if number <= 26 then
---         return string.char(number + 96)
---     elseif number <= 52 then
---         -- return string.char(number + 70)
---         return '?'
---     end
---     return '?'
--- end
+-- evaluate the loss over an entire split
+function eval_split(split_index, max_batches)
+    print('evaluating loss over split index ' .. split_index)
+    local n = loader.split_sizes[split_index]
+    if max_batches ~= nil then n = math.min(max_batches, n) end
+
+    loader:reset_batch_pointer(split_index) -- move batch iteration pointer for this split to front
+    local loss = 0
+    controller:reset()
+
+    for i = 1,n do -- iterate over batches in the split
+        -- fetch a batch
+        local x, y = loader:next_batch(split_index)
+        if opt.gpuid >= 0 and opt.opencl == 0 then -- ship the input arrays to GPU
+            -- have to convert to float because integers can't be cuda()'d
+            x = x:float():cuda()
+            y = y:float():cuda()
+        end
+        if opt.gpuid >= 0 and opt.opencl == 1 then -- ship the input arrays to GPU
+            x = x:cl()
+            y = y:cl()
+        end
+        -- forward pass
+        for t=1,opt.seq_length do
+            local input = one_hot:forward(x[{{}, t}])
+
+            local prediction = controller:step(input)
+            loss = loss + criterion:forward(prediction, y[{{}, t}])
+        end
+        print(i .. '/' .. n .. '...')
+    end
+
+    loss = loss / opt.seq_length / n
+    return loss
+end
 
 -- do fwd/bwd and return loss, grad_params
 function feval(x)
@@ -105,50 +132,22 @@ function feval(x)
 
     controller:training() -- make sure we are in correct mode (this is cheap, sets flag)
     for t=1,opt.seq_length do
-        -- print(x[{{}, t}])
-        -- print(opt.seq_length)
-        -- print(x[{{}, t}], y[{{}, t}])
         local input = one_hot:forward(x[{{}, t}])
-        -- local input = x[{{}, t}]
-        -- print(input)
-        -- print(one_hot:forward(torch.Tensor({input[1]})))
-        -- for i=1, input:size(1) do
-        --     print(ascii(input[i]))
-        -- end
-        -- print(input:size())
 
         predictions[t] = controller:step(input)
-        -- print('prediction:', predictions[t])
         loss = loss + criterion:forward(predictions[t], y[{{}, t}])
+
         grad_outputs[t] = criterion:backward(predictions[t], y[{{}, t}])
+
+        -- print("pred:", predictions[t][1])
+        -- print("truth:", y[{{}, t}][1])
+        -- vis.diff(predictions[t][1], y[{{}, t}][1])
+        -- print(grad_outputs[t][1])
     end
     loss = loss / opt.seq_length
     ------------------ backward pass -------------------
 
     controller:backward(x, grad_outputs)
-
-    --[[
-    -- initialize gradient at time t to be zeros (there's no influence from future)
-    local drnn_state = {[opt.seq_length] = clone_list(init_state, true)} -- true also zeros the clones
-    for t=opt.seq_length,1,-1 do
-        -- backprop through loss, and softmax/linear
-        local doutput_t = clones.criterion[t]:backward(predictions[t], y[{{}, t}])
-        table.insert(drnn_state[t], doutput_t)
-        local dlst = clones.rnn[t]:backward({x[{{}, t}], unpack(rnn_state[t-1])}, drnn_state[t])
-        drnn_state[t-1] = {}
-        for k,v in pairs(dlst) do
-            if k > 1 then -- k == 1 is gradient on x, which we dont need
-                -- note we do k-1 because first item is dembeddings, and then follow the
-                -- derivatives of the state, starting at index 2. I know...
-                drnn_state[t-1][k-1] = v
-            end
-        end
-    end
-    --]]
-    ------------------------ misc ----------------------
-    -- transfer final state to initial state (BPTT)
-    -- init_state_global = rnn_state[#rnn_state] -- NOTE: I don't think this needs to be a clone, right?
-    -- clip gradient element-wise
     grad_params:clamp(-opt.grad_clip, opt.grad_clip)
     return loss, grad_params
 end
@@ -181,25 +180,27 @@ for i = 1, iterations do
         end
     end
 
-    -- -- every now and then or on last iteration
-    -- if i % opt.eval_val_every == 0 or i == iterations then
-    --     -- evaluate loss on validation data
-    --     local val_loss = eval_split(2) -- 2 = validation
-    --     val_losses[i] = val_loss
-    --
-    --     local savefile = string.format('%s/lm_%s_epoch%.2f_%.4f.t7', opt.checkpoint_dir, opt.savefile, epoch, val_loss)
-    --     print('saving checkpoint to ' .. savefile)
-    --     local checkpoint = {}
-    --     checkpoint.protos = protos
-    --     checkpoint.opt = opt
-    --     checkpoint.train_losses = train_losses
-    --     checkpoint.val_loss = val_loss
-    --     checkpoint.val_losses = val_losses
-    --     checkpoint.i = i
-    --     checkpoint.epoch = epoch
-    --     checkpoint.vocab = loader.vocab_mapping
-    --     torch.save(savefile, checkpoint)
-    -- end
+    -- every now and then or on last iteration
+    if i % opt.eval_val_every == 0 or i == iterations then
+        -- evaluate loss on validation data
+        local val_loss = eval_split(2) -- 2 = validation
+        val_losses[i] = val_loss
+
+        local savefile = string.format('%s/lm_%s_epoch%.2f_%.4f.t7', opt.checkpoint_dir, opt.savefile, epoch, val_loss)
+        print('saving checkpoint to ' .. savefile)
+        local checkpoint = {}
+        checkpoint.controller = controller
+        checkpoint.opt = opt
+        checkpoint.train_losses = train_losses
+        checkpoint.val_loss = val_loss
+        checkpoint.val_losses = val_losses
+        checkpoint.i = i
+        checkpoint.epoch = epoch
+        checkpoint.vocab = loader.vocab_mapping
+        torch.save(savefile, checkpoint)
+        os.execute("say 'Checkpoint saved.'")
+        os.execute(string.format("say 'Epoch %.2f'", epoch))
+    end
 
     if i % opt.print_every == 0 then
         print(string.format("%d/%d (epoch %.3f), train_loss = %6.8f, grad/param norm = %6.4e, time/batch = %.2fs", i, iterations, epoch, train_loss, grad_params:norm() / params:norm(), time))
@@ -213,14 +214,13 @@ for i = 1, iterations do
         break -- halt
     end
     if loss0 == nil then
-        print("setting loss0")
         loss0 = loss[1]
     end
-    -- if loss[1] > loss0 * 3 then
-    --     print('loss is exploding, aborting.')
-    --     print("loss0:", loss0, "loss[1]:", loss[1])
-    --     break -- halt
-    -- end
+    if loss[1] > loss0 * 3 then
+        print('loss is exploding, aborting.')
+        print("loss0:", loss0, "loss[1]:", loss[1])
+        break -- halt
+    end
 end
 
 
