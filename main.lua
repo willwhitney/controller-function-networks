@@ -1,4 +1,5 @@
 require 'nn'
+require 'cunn'
 require 'gnuplot'
 require 'optim'
 require 'nngraph'
@@ -21,7 +22,7 @@ cmd:text('Options')
 cmd:option('-data_dir','data/tinyshakespeare','data directory. Should contain the file input.txt with input data')
 -- model params
 cmd:option('-rnn_size', 128, 'size of LSTM internal state')
-cmd:option('-num_layers', 2, 'number of layers in the LSTM')
+cmd:option('-num_layers', 3, 'number of layers in the LSTM')
 cmd:option('-model', 'lstm', 'lstm,gru or rnn')
 -- optimization
 cmd:option('-learning_rate',2e-3,'learning rate')
@@ -30,7 +31,7 @@ cmd:option('-learning_rate_decay_after',10,'in number of epochs, when to start d
 cmd:option('-decay_rate',0.95,'decay rate for rmsprop')
 cmd:option('-dropout',0,'dropout for regularization, used after each RNN hidden layer. 0 = no dropout')
 cmd:option('-seq_length',50,'number of timesteps to unroll for')
-cmd:option('-batch_size',50,'number of sequences to train on in parallel')
+cmd:option('-batch_size',1,'number of sequences to train on in parallel')
 cmd:option('-max_epochs',50,'number of full passes through the training data')
 cmd:option('-grad_clip',5,'clip gradients at this value')
 cmd:option('-train_frac',0.95,'fraction of data that goes into train set')
@@ -44,6 +45,7 @@ cmd:option('-eval_val_every',1000,'every how many iterations should we evaluate 
 cmd:option('-checkpoint_dir', 'cv', 'output directory where checkpoints get written')
 cmd:option('-savefile','lstm','filename to autosave the checkpont to. Will be inside checkpoint_dir/')
 -- GPU/CPU
+-- TODO: turn GPU back on
 cmd:option('-gpuid',-1,'which gpu to use. -1 = use CPU')
 cmd:option('-opencl',0,'use OpenCL (instead of CUDA)')
 cmd:text()
@@ -62,12 +64,22 @@ local vocab = loader.vocab_mapping
 print('vocab size: ' .. vocab_size)
 
 
-local controller = nn.Controller(vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
-local criterion = nn.ClassNLLCriterion()
-local one_hot = OneHot(vocab_size)
+controller = nn.Controller(vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
+criterion = nn.ClassNLLCriterion()
+one_hot = OneHot(vocab_size)
 
 local params, grad_params = controller:getParameters()
 params:uniform(-0.08, 0.08) -- small numbers uniform
+
+-- function ascii(number)
+--     if number <= 26 then
+--         return string.char(number + 96)
+--     elseif number <= 52 then
+--         -- return string.char(number + 70)
+--         return '?'
+--     end
+--     return '?'
+-- end
 
 -- do fwd/bwd and return loss, grad_params
 function feval(x)
@@ -94,14 +106,26 @@ function feval(x)
 
     controller:training() -- make sure we are in correct mode (this is cheap, sets flag)
     for t=1,opt.seq_length do
+        -- print(x[{{}, t}])
+        -- print(opt.seq_length)
         -- print(x[{{}, t}], y[{{}, t}])
         local input = one_hot:forward(x[{{}, t}])
+        -- local input = x[{{}, t}]
+        -- print(input)
+        -- print(one_hot:forward(torch.Tensor({input[1]})))
+        -- for i=1, input:size(1) do
+        --     print(ascii(input[i]))
+        -- end
+        -- print(input:size())
+
         predictions[t] = controller:step(input)
+        -- print('prediction:', predictions[t])
         loss = loss + criterion:forward(predictions[t], y[{{}, t}])
         grad_outputs[t] = criterion:backward(predictions[t], y[{{}, t}])
     end
     loss = loss / opt.seq_length
     ------------------ backward pass -------------------
+
     controller:backward(x, grad_outputs)
 
     --[[
@@ -130,7 +154,7 @@ function feval(x)
     return loss, grad_params
 end
 
-
+-- [[
 train_losses = {}
 val_losses = {}
 local optim_state = {learningRate = opt.learning_rate, alpha = opt.decay_rate}
@@ -142,6 +166,7 @@ for i = 1, iterations do
     local epoch = i / loader.ntrain
 
     local timer = torch.Timer()
+    controller:reset()
     local _, loss = optim.rmsprop(feval, params, optim_state)
     local time = timer:time().real
 
@@ -188,11 +213,15 @@ for i = 1, iterations do
         print('loss is NaN.  This usually indicates a bug.  Please check the issues page for existing issues, or create a new issue, if none exist.  Ideally, please state: your operating system, 32-bit/64-bit, your blas version, cpu/cuda/cl?')
         break -- halt
     end
-    if loss0 == nil then loss0 = loss[1] end
-    if loss[1] > loss0 * 3 then
-        print('loss is exploding, aborting.')
-        break -- halt
+    if loss0 == nil then
+        print("setting loss0")
+        loss0 = loss[1]
     end
+    -- if loss[1] > loss0 * 3 then
+    --     print('loss is exploding, aborting.')
+    --     print("loss0:", loss0, "loss[1]:", loss[1])
+    --     break -- halt
+    -- end
 end
 
 

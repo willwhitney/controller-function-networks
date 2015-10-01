@@ -1,47 +1,62 @@
 require 'nn'
 require 'nngraph'
 
+require 'Print'
+
 LSTM = require 'LSTM'
--- KarpathyLSTM = require 'KarpathyLSTM'
+KarpathyLSTM = require 'KarpathyLSTM'
 
 Controller, parent = torch.class('nn.Controller')
 
 
 function Controller:__init(input_size, num_units_per_layer, num_layers, dropout)
+    -- print("input size:", input_size)
     self.input_size = input_size
     self.num_units_per_layer = num_units_per_layer
 
-    -- self.state = {}
+    self.network = {}
+    -- create the input layer with different input size
+    -- table.insert(self.network,
+        -- KarpathyLSTM.lstm(self.input_size, self.num_units_per_layer, 1, dropout))
+    table.insert(self.network,
+        LSTM.create(self.input_size, self.num_units_per_layer))
+    for i = 2, num_layers - 1 do
+        table.insert(self.network,
+            LSTM.create(self.num_units_per_layer, self.num_units_per_layer))
+    end
+    -- last layer smushes back down to input domain
+    table.insert(self.network,
+        LSTM.create(self.num_units_per_layer, self.input_size))
+
+    self:reset()
+end
+
+function Controller:reset()
     self.trace = {}
     self.backtrace = {}
 
     -- create a first state with all previous outputs & cells set to zeros
     self.state = {}
-    for i = 1, num_layers do
+    for i = 1, #self.network-1 do
         local layer_state = {
-                torch.zeros(self.num_units_per_layer),  -- prev_c
-                torch.zeros(self.num_units_per_layer),  -- prev_h
+                torch.zeros(1, self.num_units_per_layer),  -- prev_c
+                torch.zeros(1, self.num_units_per_layer),  -- prev_h
             }
         table.insert(self.state, layer_state)
     end
-    -- table.insert(self.state, first_state)
 
-    self.network = {}
-
-    -- create the input layer with different input size
-    -- table.insert(network,
-    --     KarpathyLSTM.create(self.input_size, self.num_units_per_layer, 1, dropout))
-    table.insert(self.network,
-        LSTM.create(self.input_size, self.num_units_per_layer))
-    for i = 2, num_layers do
-        table.insert(self.network,
-            LSTM.create(self.num_units_per_layer, self.num_units_per_layer, 1, dropout))
-    end
+    -- we're crushing this back down to the input space at the end,
+    -- so the number of nodes in the last layer is different
+    table.insert(self.state, {
+            torch.zeros(1, self.input_size),  -- prev_c
+            torch.zeros(1, self.input_size),  -- prev_h
+        })
 
 end
 
 
 function Controller:step(input)
+    -- print("real input size: ", input:size())
     local current_input = input:clone()
     local step_trace = {}
     local output
@@ -54,9 +69,9 @@ function Controller:step(input)
                 self.state[i][2],  -- prev_h for this layer
             }
 
-        print("inputs for layer ".. i, inputs[1])
+        -- print("inputs for layer ".. i, inputs[1]:size(), inputs[2]:size(), inputs[3]:size())
         output = self.network[i]:forward(inputs)
-
+        -- print("output for layer ".. i, output)
         -- the trace for this layer at this step is just a table of its
         -- inputs and outputs
         local layer_step_trace = {
@@ -75,9 +90,11 @@ function Controller:step(input)
         }
         table.insert(step_trace, layer_step_trace)
     end
+    -- print("end of step")
 
     table.insert(self.trace, step_trace)
-    self.output = output
+    self.output = current_input
+    return self.output
 end
 
 
@@ -97,7 +114,8 @@ function Controller:backward(inputs, grad_outputs)
 
         -- #self.network is the number of layers
         for i = 1, #self.network do
-            local layer_input = step_trace[i].input
+            -- print("Trace for layer " ..i.. " at step "..timestep, step_trace[i])
+            local layer_input = step_trace[i].inputs
             self.network[i]:forward(layer_input)
         end
 
@@ -114,7 +132,7 @@ function Controller:backward(inputs, grad_outputs)
             end
 
 
-            local layer_input = step_trace[i].input
+            local layer_input = step_trace[i].inputs
 
             -- now we'll build a table of the form
             --      { grad(next_c), grad(next_h) }
@@ -173,7 +191,7 @@ function Controller:backstep(timestep, gradOutput)
 
     -- #self.network is the number of layers
     for i = 1, #self.network do
-        local layer_input = step_trace[i].input
+        local layer_input = step_trace[i].inputs
         self.network[i]:forward(layer_input)
     end
 
@@ -190,7 +208,7 @@ function Controller:backstep(timestep, gradOutput)
         end
 
 
-        local layer_input = step_trace[i].input
+        local layer_input = step_trace[i].inputs
 
         -- now we'll build a table of the form
         --      { grad(next_c), grad(next_h) }
@@ -229,13 +247,21 @@ end
 function Controller:buildFinalGradient()
     -- build a set of dummy (zero) gradients for a timestep that didn't happen
     local last_gradient = {}
-    for i = 1, #self.network do
+    for i = 1, #self.network-1 do
         table.insert(last_gradient, {
                 torch.zeros(self.num_units_per_layer), -- dummy gradInput
                 torch.zeros(self.num_units_per_layer), -- dummy grad_prev_c
                 torch.zeros(self.num_units_per_layer), -- dummy grad_prev_h
             })
     end
+
+    -- last layer is only input_size wide to shrink our output
+    table.insert(last_gradient, {
+            torch.zeros(self.input_size), -- dummy gradInput
+            torch.zeros(self.input_size), -- dummy grad_prev_c
+            torch.zeros(self.input_size), -- dummy grad_prev_h
+        })
+
     return last_gradient
 end
 
