@@ -1,8 +1,6 @@
 require 'nn'
 require 'nngraph'
 
-require 'Print'
-
 LSTM = require 'LSTM'
 KarpathyLSTM = require 'KarpathyLSTM'
 

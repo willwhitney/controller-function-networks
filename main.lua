@@ -1,5 +1,4 @@
 require 'nn'
-require 'cunn'
 require 'gnuplot'
 require 'optim'
 require 'nngraph'
