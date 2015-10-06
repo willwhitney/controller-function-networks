@@ -2,3 +2,5 @@
 .ipynb_checkpoints
 cv/
 sample.lua
+data/alternation/
+data/ones/

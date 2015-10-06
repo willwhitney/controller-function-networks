@@ -4,28 +4,30 @@ require 'nngraph'
 local LSTM = {}
 
 function LSTM.create(input_size, rnn_size)
+    -- nngraph.setDebug(true)
+
     --------------------- input structure ---------------------
     local inputs = {}
-    table.insert(inputs, nn.Identity()())   -- network input
-    table.insert(inputs, nn.Identity()())   -- c at time t-1
-    table.insert(inputs, nn.Identity()())   -- h at time t-1
+    table.insert(inputs, nn.Identity()():annotate{name="input"})   -- network input
+    table.insert(inputs, nn.Identity()():annotate{name="c of t-1"})   -- c at time t-1
+    table.insert(inputs, nn.Identity()():annotate{name="h of t-1"})   -- h at time t-1
     local input = inputs[1]
     local prev_c = inputs[2]
     local prev_h = inputs[3]
 
     --------------------- preactivations ----------------------
-    local i2h = nn.Linear(input_size, 4 * rnn_size)(input)   -- input to hidden
-    local h2h = nn.Linear(rnn_size, 4 * rnn_size)(prev_h)    -- hidden to hidden
-    local preactivations = nn.CAddTable()({i2h, h2h})        -- i2h + h2h
+    local i2h = nn.Linear(input_size, 4 * rnn_size)(input):annotate{name="i2h"}   -- input to hidden
+    local h2h = nn.Linear(rnn_size, 4 * rnn_size)(prev_h):annotate{name="h2h"}    -- hidden to hidden
+    local preactivations = nn.CAddTable()({i2h, h2h}):annotate{name="preactivations"}        -- i2h + h2h
 
     ------------------ non-linear transforms ------------------
     -- gates
-    local pre_sigmoid_chunk = nn.Narrow(2, 1, 3 * rnn_size)(preactivations)
-    local all_gates = nn.Sigmoid()(pre_sigmoid_chunk)
+    local pre_sigmoid_chunk = nn.Narrow(2, 1, 3 * rnn_size)(preactivations):annotate{name="pre_sigmoid"}
+    local all_gates = nn.Sigmoid()(pre_sigmoid_chunk):annotate{name="all_gates"}
 
     -- input
-    local in_chunk = nn.Narrow(2, 3 * rnn_size + 1, rnn_size)(preactivations)
-    local in_transform = nn.Tanh()(in_chunk)
+    local in_chunk = nn.Narrow(2, 3 * rnn_size + 1, rnn_size)(preactivations):annotate{name="in_chunk"}
+    local in_transform = nn.Tanh()(in_chunk):annotate{name="in_transform"}
 
     ---------------------- gate narrows -----------------------
     local in_gate = nn.Narrow(2, 1, rnn_size)(all_gates)

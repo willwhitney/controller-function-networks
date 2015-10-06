@@ -20,8 +20,8 @@ cmd:text('Options')
 -- data
 cmd:option('-data_dir','data/tinyshakespeare','data directory. Should contain the file input.txt with input data')
 -- model params
-cmd:option('-rnn_size', 128, 'size of LSTM internal state')
-cmd:option('-num_layers', 2, 'number of layers in the LSTM')
+cmd:option('-rnn_size', 32, 'size of LSTM internal state')
+cmd:option('-num_layers', 1, 'number of layers in the LSTM')
 cmd:option('-model', 'lstm', 'lstm,gru or rnn')
 -- optimization
 cmd:option('-learning_rate',2e-3,'learning rate')
@@ -29,8 +29,8 @@ cmd:option('-learning_rate_decay',0.97,'learning rate decay')
 cmd:option('-learning_rate_decay_after',10,'in number of epochs, when to start decaying the learning rate')
 cmd:option('-decay_rate',0.95,'decay rate for rmsprop')
 cmd:option('-dropout',0,'dropout for regularization, used after each RNN hidden layer. 0 = no dropout')
-cmd:option('-seq_length',50,'number of timesteps to unroll for')
-cmd:option('-batch_size',50,'number of sequences to train on in parallel')
+cmd:option('-seq_length',2,'number of timesteps to unroll for')
+cmd:option('-batch_size',1,'number of sequences to train on in parallel')
 cmd:option('-max_epochs',50,'number of full passes through the training data')
 cmd:option('-grad_clip',5,'clip gradients at this value')
 cmd:option('-train_frac',0.95,'fraction of data that goes into train set')
@@ -65,6 +65,9 @@ print('vocab size: ' .. vocab_size)
 
 
 controller = nn.Controller(vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
+
+-- graph.dot(controller.network[1].fg, 'layer', 'layer')
+
 criterion = nn.CrossEntropyCriterion()
 one_hot = OneHot(vocab_size)
 
@@ -113,6 +116,7 @@ function feval(x)
         params:copy(x)
     end
     grad_params:zero()
+    controller:reset()
 
     ------------------ get minibatch -------------------
     local x, y = loader:next_batch(1)
@@ -133,6 +137,7 @@ function feval(x)
     controller:training() -- make sure we are in correct mode (this is cheap, sets flag)
     for t=1,opt.seq_length do
         local input = one_hot:forward(x[{{}, t}])
+        -- print(input)
 
         predictions[t] = controller:step(input)
         loss = loss + criterion:forward(predictions[t], y[{{}, t}])
@@ -141,14 +146,15 @@ function feval(x)
 
         -- print("pred:", predictions[t][1])
         -- print("truth:", y[{{}, t}][1])
-        -- vis.diff(predictions[t][1], y[{{}, t}][1])
+
         -- print(grad_outputs[t][1])
     end
     loss = loss / opt.seq_length
     ------------------ backward pass -------------------
 
-    controller:backward(x, grad_outputs)
+    controller:backward(nil, grad_outputs)
     grad_params:clamp(-opt.grad_clip, opt.grad_clip)
+    -- grad_params:mul(-1)
     return loss, grad_params
 end
 
@@ -164,7 +170,6 @@ for i = 1, iterations do
     local epoch = i / loader.ntrain
 
     local timer = torch.Timer()
-    controller:reset()
     local _, loss = optim.rmsprop(feval, params, optim_state)
     local time = timer:time().real
 
@@ -198,8 +203,8 @@ for i = 1, iterations do
         checkpoint.epoch = epoch
         checkpoint.vocab = loader.vocab_mapping
         torch.save(savefile, checkpoint)
-        os.execute("say 'Checkpoint saved.'")
-        os.execute(string.format("say 'Epoch %.2f'", epoch))
+        -- os.execute("say 'Checkpoint saved.'")
+        -- os.execute(string.format("say 'Epoch %.2f'", epoch))
     end
 
     if i % opt.print_every == 0 then
@@ -216,11 +221,11 @@ for i = 1, iterations do
     if loss0 == nil then
         loss0 = loss[1]
     end
-    if loss[1] > loss0 * 3 then
-        print('loss is exploding, aborting.')
-        print("loss0:", loss0, "loss[1]:", loss[1])
-        break -- halt
-    end
+    -- if loss[1] > loss0 * 3 then
+    --     print('loss is exploding, aborting.')
+    --     print("loss0:", loss0, "loss[1]:", loss[1])
+    --     break -- halt
+    -- end
 end
 
 

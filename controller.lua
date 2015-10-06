@@ -11,6 +11,7 @@ function Controller:__init(input_size, num_units_per_layer, num_layers, dropout)
     -- print("input size:", input_size)
     self.input_size = input_size
     self.num_units_per_layer = num_units_per_layer
+    print("Units per layer: ", self.num_units_per_layer)
 
     self.network = {}
     -- create the input layer with different input size
@@ -18,37 +19,38 @@ function Controller:__init(input_size, num_units_per_layer, num_layers, dropout)
         -- KarpathyLSTM.lstm(self.input_size, self.num_units_per_layer, 1, dropout))
     table.insert(self.network,
         LSTM.create(self.input_size, self.num_units_per_layer))
-    for i = 2, num_layers - 1 do
+    print(self.network[1])
+    for i = 2, num_layers do
         table.insert(self.network,
             LSTM.create(self.num_units_per_layer, self.num_units_per_layer))
     end
     -- last layer smushes back down to input domain
-    table.insert(self.network,
-        LSTM.create(self.num_units_per_layer, self.input_size))
+    self.decoder = nn.Linear(self.num_units_per_layer, self.input_size)
 
     self:reset()
 end
 
-function Controller:reset()
+function Controller:reset(batch_size)
+    batch_size = batch_size or opt.batch_size
     self.trace = {}
     self.backtrace = {}
 
     -- create a first state with all previous outputs & cells set to zeros
     self.state = {}
-    for i = 1, #self.network-1 do
+    for i = 1, #self.network do
         local layer_state = {
-                torch.zeros(opt.batch_size, self.num_units_per_layer),  -- prev_c
-                torch.zeros(opt.batch_size, self.num_units_per_layer),  -- prev_h
+                torch.zeros(batch_size, self.num_units_per_layer),  -- prev_c
+                torch.zeros(batch_size, self.num_units_per_layer),  -- prev_h
             }
         table.insert(self.state, layer_state)
     end
 
     -- we're crushing this back down to the input space at the end,
     -- so the number of nodes in the last layer is different
-    table.insert(self.state, {
-            torch.zeros(opt.batch_size, self.input_size),  -- prev_c
-            torch.zeros(opt.batch_size, self.input_size),  -- prev_h
-        })
+    -- table.insert(self.state, {
+    --         torch.zeros(opt.batch_size, self.input_size),  -- prev_c
+    --         torch.zeros(opt.batch_size, self.input_size),  -- prev_h
+    --     })
 
 end
 
@@ -88,10 +90,17 @@ function Controller:step(input)
         }
         table.insert(step_trace, layer_step_trace)
     end
+
+    -- last one is just a Linear
+    local decoder_output = self.decoder:forward(current_input)
+    table.insert(step_trace, {
+        inputs = current_input:clone(),
+        outputs = decoder_output:clone()
+    })
     -- print("end of step")
 
     table.insert(self.trace, step_trace)
-    self.output = current_input
+    self.output = decoder_output:clone()
     return self.output
 end
 
@@ -116,7 +125,11 @@ function Controller:backward(inputs, grad_outputs)
             local layer_input = step_trace[i].inputs
             self.network[i]:forward(layer_input)
         end
+        -- forward the decoder too
+        local decoder_input = step_trace[#self.network+1].inputs
+        self.decoder:forward(decoder_input)
 
+        current_gradOutput = self.decoder:backward(decoder_input, grad_outputs[timestep])
         for i = #self.network, 1, -1 do
 
             -- for most layers, current_gradOutput was set by the layer above.
@@ -125,9 +138,9 @@ function Controller:backward(inputs, grad_outputs)
             -- else (whether that's a criterion or some differentiable function
             -- that does something else) so that outside thing must provide the
             -- gradient
-            if i == #self.network then
-                current_gradOutput = grad_outputs[timestep]
-            end
+            -- if i == #self.network then
+            --     current_gradOutput = grad_outputs[timestep]
+            -- end
 
 
             local layer_input = step_trace[i].inputs
@@ -144,6 +157,8 @@ function Controller:backward(inputs, grad_outputs)
             layer_grad_output[2] = self.backtrace[timestep + 1][i][3]
 
             -- grad(next_h) contribution from next_h as this layer's output
+            -- print(layer_grad_output[2]:size())
+            -- print(current_gradOutput:size())
             layer_grad_output[2] = layer_grad_output[2] + current_gradOutput
 
 
@@ -193,6 +208,11 @@ function Controller:backstep(timestep, gradOutput)
         self.network[i]:forward(layer_input)
     end
 
+    local decoder_input = step_trace[#self.network+1].inputs
+    self.decoder:forward(decoder_input)
+
+    current_gradOutput = self.decoder:backward(decoder_input, gradOutput)
+
     for i = #self.network, 1, -1 do
 
         -- for most layers, current_gradOutput was set by the layer above.
@@ -201,9 +221,9 @@ function Controller:backstep(timestep, gradOutput)
         -- else (whether that's a criterion or some differentiable function
         -- that does something else) so that outside thing must provide the
         -- gradient
-        if i == #self.network then
-            current_gradOutput = gradOutput
-        end
+        -- if i == #self.network then
+        --     current_gradOutput = grad_outputs[timestep]
+        -- end
 
 
         local layer_input = step_trace[i].inputs
@@ -219,7 +239,9 @@ function Controller:backstep(timestep, gradOutput)
         -- grad(next_h) contribution from grad_prev_h from the next timestep
         layer_grad_output[2] = self.backtrace[timestep + 1][i][3]
 
-        -- grad(next_h) contribution from next_h being used as this layer's output
+        -- grad(next_h) contribution from next_h as this layer's output
+        -- print(layer_grad_output[2]:size())
+        -- print(current_gradOutput:size())
         layer_grad_output[2] = layer_grad_output[2] + current_gradOutput
 
 
@@ -245,7 +267,7 @@ end
 function Controller:buildFinalGradient()
     -- build a set of dummy (zero) gradients for a timestep that didn't happen
     local last_gradient = {}
-    for i = 1, #self.network-1 do
+    for i = 1, #self.network do
         table.insert(last_gradient, {
                 torch.zeros(opt.batch_size, self.num_units_per_layer), -- dummy gradInput
                 torch.zeros(opt.batch_size, self.num_units_per_layer), -- dummy grad_prev_c
@@ -254,11 +276,11 @@ function Controller:buildFinalGradient()
     end
 
     -- last layer is only input_size wide to shrink our output
-    table.insert(last_gradient, {
-            torch.zeros(opt.batch_size, self.input_size), -- dummy gradInput
-            torch.zeros(opt.batch_size, self.input_size), -- dummy grad_prev_c
-            torch.zeros(opt.batch_size, self.input_size), -- dummy grad_prev_h
-        })
+    -- table.insert(last_gradient, {
+    --         torch.zeros(opt.batch_size, self.input_size), -- dummy gradInput
+    --         torch.zeros(opt.batch_size, self.input_size), -- dummy grad_prev_c
+    --         torch.zeros(opt.batch_size, self.input_size), -- dummy grad_prev_h
+    --     })
 
     return last_gradient
 end
@@ -267,12 +289,14 @@ function Controller:updateParameters(learningRate)
     for i = 1, #self.network do
         self.network[i]:updateParameters(learningRate)
     end
+    self.decoder:updateParameters(learningRate)
 end
 
 function Controller:zeroGradParameters()
     for i = 1, #self.network do
         self.network[i]:zeroGradParameters()
     end
+    self.decoder:zeroGradParameters()
 end
 
 -- taken from nn.Container
@@ -294,6 +318,11 @@ function Controller:parameters()
             tinsert(w,mw)
             tinsert(gw,mgw)
         end
+    end
+    local mw,mgw = self.decoder:parameters()
+    if mw then
+        tinsert(w,mw)
+        tinsert(gw,mgw)
     end
     return w,gw
 end
