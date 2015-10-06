@@ -113,66 +113,7 @@ function Controller:backward(inputs, grad_outputs)
     self.backtrace[#self.trace + 1] = self:buildFinalGradient()
 
     for timestep = #self.trace, 1, -1 do
-        local step_trace = self.trace[timestep]
-        local step_backtrace = {}
-
-        -- in Torch, a network must have been run forward() before backward()
-        -- otherwise operation is not guaranteed to be correct
-
-        -- #self.network is the number of layers
-        for i = 1, #self.network do
-            -- print("Trace for layer " ..i.. " at step "..timestep, step_trace[i])
-            local layer_input = step_trace[i].inputs
-            self.network[i]:forward(layer_input)
-        end
-        -- forward the decoder too
-        local decoder_input = step_trace[#self.network+1].inputs
-        self.decoder:forward(decoder_input)
-
-        current_gradOutput = self.decoder:backward(decoder_input, grad_outputs[timestep])
-        for i = #self.network, 1, -1 do
-
-            -- for most layers, current_gradOutput was set by the layer above.
-            -- however, for the last layer in the network, current_gradOutput comes
-            -- from the outside. the output of the last layer goes to something
-            -- else (whether that's a criterion or some differentiable function
-            -- that does something else) so that outside thing must provide the
-            -- gradient
-            -- if i == #self.network then
-            --     current_gradOutput = grad_outputs[timestep]
-            -- end
-
-
-            local layer_input = step_trace[i].inputs
-
-            -- now we'll build a table of the form
-            --      { grad(next_c), grad(next_h) }
-            -- that we can run backward through this layer
-            local layer_grad_output = {}
-
-            -- grad(next_c) is grad_prev_c from the next timestep
-            layer_grad_output[1] = self.backtrace[timestep + 1][i][2]
-
-            -- grad(next_h) contribution from grad_prev_h from the next timestep
-            layer_grad_output[2] = self.backtrace[timestep + 1][i][3]
-
-            -- grad(next_h) contribution from next_h as this layer's output
-            -- print(layer_grad_output[2]:size())
-            -- print(current_gradOutput:size())
-            layer_grad_output[2] = layer_grad_output[2] + current_gradOutput
-
-
-            local gradInput = self.network[i]:backward(layer_input, layer_grad_output)
-            local layer_step_backtrace = {
-                gradInput[1]:clone(), -- cloning defensively, TODO: remove
-                gradInput[2]:clone(), -- cloning defensively, TODO: remove
-                gradInput[3]:clone(), -- cloning defensively, TODO: remove
-            }
-
-            current_gradOutput = gradInput[1]:clone() -- cloning defensively, TODO: remove
-            step_backtrace[i] = layer_step_backtrace
-        end
-        self.backtrace[timestep] = step_backtrace
+        self:backstep(timestep, grad_outputs[timestep])
     end
     self.gradInput = current_gradOutput
     return self.gradInput

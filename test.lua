@@ -59,12 +59,12 @@ function feval()
         grad_outputs[t] = criterion:backward(prediction, target)
     end
 
-    for t = opt.seq_length,1,-1 do
-        controller:backstep(t, grad_outputs[t])
-    end
+    -- for t = opt.seq_length,1,-1 do
+    --     controller:backstep(t, grad_outputs[t])
+    -- end
 
-    -- controller:backward(nil, grad_outputs)
-    
+    controller:backward(nil, grad_outputs)
+
     gp:clamp(-5, 5)
     return loss, gp
 end
