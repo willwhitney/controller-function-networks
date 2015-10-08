@@ -22,7 +22,7 @@ function CharSplitLMMinibatchLoader.create(data_dir, batch_size, seq_length, spl
         print('vocab.t7 and data.t7 do not exist. Running preprocessing...')
         run_prepro = true
     else
-        -- check if the input file was modified since last time we 
+        -- check if the input file was modified since last time we
         -- ran the prepro. if so, we have to rerun the preprocessing
         local input_attr = lfs.attributes(input_file)
         local vocab_attr = lfs.attributes(vocab_file)
@@ -46,14 +46,14 @@ function CharSplitLMMinibatchLoader.create(data_dir, batch_size, seq_length, spl
     local len = data:size(1)
     if len % (batch_size * seq_length) ~= 0 then
         print('cutting off end of data so that the batches/sequences divide evenly')
-        data = data:sub(1, batch_size * seq_length 
+        data = data:sub(1, batch_size * seq_length
                     * math.floor(len / (batch_size * seq_length)))
     end
 
     -- count vocab
     self.vocab_size = 0
-    for _ in pairs(self.vocab_mapping) do 
-        self.vocab_size = self.vocab_size + 1 
+    for _ in pairs(self.vocab_mapping) do
+        self.vocab_size = self.vocab_size + 1
     end
 
     -- self.batches is a table of tensors
@@ -78,7 +78,7 @@ function CharSplitLMMinibatchLoader.create(data_dir, batch_size, seq_length, spl
     assert(split_fractions[1] >= 0 and split_fractions[1] <= 1, 'bad split fraction ' .. split_fractions[1] .. ' for train, not between 0 and 1')
     assert(split_fractions[2] >= 0 and split_fractions[2] <= 1, 'bad split fraction ' .. split_fractions[2] .. ' for val, not between 0 and 1')
     assert(split_fractions[3] >= 0 and split_fractions[3] <= 1, 'bad split fraction ' .. split_fractions[3] .. ' for test, not between 0 and 1')
-    if split_fractions[3] == 0 then 
+    if split_fractions[3] == 0 then
         -- catch a common special case where the user might not want a test set
         self.ntrain = math.floor(self.nbatches * split_fractions[1])
         self.nval = self.nbatches - self.ntrain
@@ -177,4 +177,3 @@ function CharSplitLMMinibatchLoader.text_to_tensor(in_textfile, out_vocabfile, o
 end
 
 return CharSplitLMMinibatchLoader
-

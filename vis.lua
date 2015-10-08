@@ -12,7 +12,7 @@ vis.colors = {
     RESET = '\27[0m'
 }
 
-vis.decimalPlaces = 2
+vis.decimalPlaces = 6
 
 function vis.lines(str)
     local t = {}

@@ -36,16 +36,7 @@ function Controller:reset(batch_size)
     batch_size = batch_size or opt.batch_size
     self.trace = {}
     self.backtrace = {}
-
-    -- create a first state with all previous outputs & cells set to zeros
-    self.state = {}
-    for i = 1, #self.network do
-        local layer_state = {
-                torch.zeros(batch_size, self.num_units_per_layer),  -- prev_c
-                torch.zeros(batch_size, self.num_units_per_layer),  -- prev_h
-            }
-        table.insert(self.state, layer_state)
-    end
+    self:reset_state(batch_size)
 
     -- we're crushing this back down to the input space at the end,
     -- so the number of nodes in the last layer is different
@@ -56,12 +47,25 @@ function Controller:reset(batch_size)
 
 end
 
+function Controller:reset_state(batch_size)
+    -- create a first state with all previous outputs & cells set to zeros
+    self.state = {}
+    for i = 1, #self.network do
+        local layer_state = {
+                torch.zeros(batch_size, self.num_units_per_layer),  -- prev_c
+                torch.zeros(batch_size, self.num_units_per_layer),  -- prev_h
+            }
+        table.insert(self.state, layer_state)
+    end
+end
+
 
 function Controller:step(input)
-    -- print("real input size: ", input:size())
     local current_input = input:clone()
     local step_trace = {}
     local output
+
+    self:reset_state(1)
 
     -- #self.network is the number of layers
     for i = 1, #self.network do
@@ -71,14 +75,14 @@ function Controller:step(input)
                 self.state[i][2],  -- prev_h for this layer
             }
 
-        -- print("inputs for layer ".. i, inputs[1]:size(), inputs[2]:size(), inputs[3]:size())
+        -- print("inputs for layer ".. i, inputs[1], inputs[2], inputs[3])
         output = self.network[i]:forward(inputs)
-        -- print("output for layer ".. i, output)
+        -- print("output for layer ".. i, output[1], output[2])
         -- the trace for this layer at this step is just a table of its
         -- inputs and outputs
         local layer_step_trace = {
             inputs = inputs,
-            output = output,
+            -- output = output,
         }
 
         -- the input for the next layer is next_h from this one
@@ -128,12 +132,15 @@ function Controller:backstep(timestep, gradOutput)
     -- make sure we have a trace at this timestep
     assert(type(self.trace[timestep]) ~= nil)
 
+    -- print("gradOutput at timestep " .. timestep)
+    -- print(gradOutput)
+
     -- if this is the last timestep, and it hasn't been done already,
     -- make a set of zero gradients for the timestep after the last one.
     -- this allows us to use the same code for the last timestep as for the others
-    if timestep == #self.trace and type(self.backtrace[timestep + 1] == nil) then
+    -- if timestep == #self.trace and type(self.backtrace[timestep + 1] == nil) then
         self.backtrace[#self.trace + 1] = self:buildFinalGradient()
-    end
+    -- end
 
     -- make sure that (with dummy in place for (#timesteps + 1)) we have gradients
     -- for the timestep after this
@@ -147,6 +154,9 @@ function Controller:backstep(timestep, gradOutput)
 
     -- #self.network is the number of layers
     for i = 1, #self.network do
+        if step_trace[i].inputs[2]:sum() + step_trace[i].inputs[3]:sum() ~= 0 then
+            error("There's memory!")
+        end
         local layer_input = step_trace[i].inputs
         self.network[i]:forward(layer_input)
     end
@@ -177,23 +187,24 @@ function Controller:backstep(timestep, gradOutput)
         local layer_grad_output = {}
 
         -- grad(next_c) is grad_prev_c from the next timestep
-        layer_grad_output[1] = self.backtrace[timestep + 1][i][2]
+        layer_grad_output[1] = self.backtrace[timestep + 1][i][2]:clone():fill(0)
 
         -- grad(next_h) contribution from grad_prev_h from the next timestep
-        layer_grad_output[2] = self.backtrace[timestep + 1][i][3]
+        -- layer_grad_output[2] = self.backtrace[timestep + 1][i][3]:clone()
 
         -- grad(next_h) contribution from next_h as this layer's output
         -- print(layer_grad_output[2]:size())
         -- print(current_gradOutput:size())
-        layer_grad_output[2] = layer_grad_output[2] + current_gradOutput
+        layer_grad_output[2] = current_gradOutput:clone()
 
+        -- print("time " .. timestep .. " layer_grad_output:", layer_grad_output[1], layer_grad_output[2])
 
         local gradInput = self.network[i]:backward(layer_input, layer_grad_output)
         local layer_step_backtrace = {
             -- cloning defensively, TODO: remove
             gradInput[1]:clone(), -- grad_input
-            gradInput[2]:clone(), -- grad_prev_c
-            gradInput[3]:clone(), -- grad_prev_h
+            gradInput[2]:clone():fill(0), -- grad_prev_c
+            gradInput[3]:clone():fill(0), -- grad_prev_h
         }
 
         current_gradOutput = gradInput[1]:clone() -- cloning defensively, TODO: remove
@@ -213,7 +224,7 @@ function Controller:buildFinalGradient()
     local last_gradient = {}
     for i = 1, #self.network do
         table.insert(last_gradient, {
-                torch.zeros(opt.batch_size, self.num_units_per_layer), -- dummy gradInput
+                nil, -- dummy gradInput
                 torch.zeros(opt.batch_size, self.num_units_per_layer), -- dummy grad_prev_c
                 torch.zeros(opt.batch_size, self.num_units_per_layer), -- dummy grad_prev_h
             })
@@ -291,14 +302,12 @@ function Controller:training()
     for i = 1, #self.network do
         self.network[i]:training()
     end
-    self.decoder:training()
 end
 
 function Controller:evaluate()
     for i = 1, #self.network do
         self.network[i]:evaluate()
     end
-    self.decoder:evaluate()
 end
 
 

@@ -67,18 +67,21 @@ function Controller:step(input)
     for i = 1, #self.network do
         local inputs = {
                 current_input,
-                self.state[i][1],  -- prev_c for this layer
-                self.state[i][2],  -- prev_h for this layer
+                self.state[i][1]:clone():fill(0),  -- prev_c for this layer
+                self.state[i][2]:clone():fill(0),  -- prev_h for this layer
             }
 
-        -- print("inputs for layer ".. i, inputs[1]:size(), inputs[2]:size(), inputs[3]:size())
+        -- print("inputs for layer ".. i, inputs[1], inputs[2], inputs[3])
         output = self.network[i]:forward(inputs)
-        -- print("output for layer ".. i, output)
+        -- print("output for layer ".. i, output[1], output[2])
         -- the trace for this layer at this step is just a table of its
         -- inputs and outputs
         local layer_step_trace = {
             inputs = inputs,
-            output = output,
+            -- output = {
+            --         output[1]:clone(),
+            --         output[2]:clone():fill(0),
+            --     },
         }
 
         -- the input for the next layer is next_h from this one
@@ -87,8 +90,8 @@ function Controller:step(input)
         -- the output was {next_c, next_h}, which is
         -- the state for this layer at the next step
         self.state[i] = {
-            output[1]:clone(), -- cloning defensively, TODO: remove
-            output[2]:clone(), -- cloning defensively, TODO: remove
+            output[1]:clone():fill(0), -- cloning defensively, TODO: remove
+            output[2]:clone():fill(0), -- cloning defensively, TODO: remove
         }
         table.insert(step_trace, layer_step_trace)
     end
@@ -97,7 +100,7 @@ function Controller:step(input)
     local decoder_output = self.decoder:forward(current_input)
     table.insert(step_trace, {
         inputs = current_input:clone(),
-        outputs = decoder_output:clone()
+        -- outputs = decoder_output:clone()
     })
     -- print("end of step")
 
@@ -177,23 +180,19 @@ function Controller:backstep(timestep, gradOutput)
         local layer_grad_output = {}
 
         -- grad(next_c) is grad_prev_c from the next timestep
-        layer_grad_output[1] = self.backtrace[timestep + 1][i][2]
+        layer_grad_output[1] = self.backtrace[timestep + 1][i][2]:clone():fill(0)
 
-        -- grad(next_h) contribution from grad_prev_h from the next timestep
-        layer_grad_output[2] = self.backtrace[timestep + 1][i][3]
 
         -- grad(next_h) contribution from next_h as this layer's output
-        -- print(layer_grad_output[2]:size())
-        -- print(current_gradOutput:size())
-        layer_grad_output[2] = layer_grad_output[2] + current_gradOutput
+        layer_grad_output[2] = current_gradOutput
 
 
         local gradInput = self.network[i]:backward(layer_input, layer_grad_output)
         local layer_step_backtrace = {
             -- cloning defensively, TODO: remove
             gradInput[1]:clone(), -- grad_input
-            gradInput[2]:clone(), -- grad_prev_c
-            gradInput[3]:clone(), -- grad_prev_h
+            gradInput[2]:clone():fill(0), -- grad_prev_c
+            gradInput[3]:clone():fill(0), -- grad_prev_h
         }
 
         current_gradOutput = gradInput[1]:clone() -- cloning defensively, TODO: remove
@@ -291,14 +290,12 @@ function Controller:training()
     for i = 1, #self.network do
         self.network[i]:training()
     end
-    self.decoder:training()
 end
 
 function Controller:evaluate()
     for i = 1, #self.network do
         self.network[i]:evaluate()
     end
-    self.decoder:evaluate()
 end
 
 
