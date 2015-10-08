@@ -11,6 +11,7 @@ require 'OneHot'
 local CharSplitLMMinibatchLoader = require 'CharSplitLMMinibatchLoader'
 
 require 'Controller'
+require 'CFNetwork'
 
 cmd = torch.CmdLine()
 cmd:text()
@@ -20,8 +21,8 @@ cmd:text('Options')
 -- data
 cmd:option('-data_dir','data/tinyshakespeare','data directory. Should contain the file input.txt with input data')
 -- model params
-cmd:option('-rnn_size', 3, 'size of LSTM internal state')
-cmd:option('-num_layers', 2, 'number of layers in the LSTM')
+cmd:option('-rnn_size', 1, 'size of LSTM internal state')
+cmd:option('-num_layers', 1, 'number of layers in the LSTM')
 cmd:option('-model', 'lstm', 'lstm,gru or rnn')
 -- optimization
 cmd:option('-learning_rate',2e-3,'learning rate')
@@ -29,7 +30,7 @@ cmd:option('-learning_rate_decay',0.97,'learning rate decay')
 cmd:option('-learning_rate_decay_after',10,'in number of epochs, when to start decaying the learning rate')
 cmd:option('-decay_rate',0.95,'decay rate for rmsprop')
 cmd:option('-dropout',0,'dropout for regularization, used after each RNN hidden layer. 0 = no dropout')
-cmd:option('-seq_length',50,'number of timesteps to unroll for')
+cmd:option('-seq_length',10,'number of timesteps to unroll for')
 cmd:option('-batch_size',30,'number of sequences to train on in parallel')
 cmd:option('-max_epochs',200,'number of full passes through the training data')
 cmd:option('-grad_clip',5,'clip gradients at this value')
@@ -64,14 +65,20 @@ local vocab = loader.vocab_mapping
 print('vocab size: ' .. vocab_size)
 
 
-controller = nn.Controller(vocab_size, vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
+model = nn.CFNetwork({
+        input_dimension = vocab_size,
+        num_functions = 2,
+        controller_units_per_layer = opt.rnn_size,
+        controller_num_layers = opt.num_layers,
+        controller_dropout = opt.dropout,
+    })
 
--- graph.dot(controller.network[1].fg, 'layer', 'layer')
+-- graph.dot(model.network[1].fg, 'layer', 'layer')
 
 criterion = nn.CrossEntropyCriterion()
 one_hot = OneHot(vocab_size)
 
-local params, grad_params = controller:getParameters()
+local params, grad_params = model:getParameters()
 params:uniform(-0.08, 0.08) -- small numbers uniform
 
 -- evaluate the loss over an entire split
@@ -82,7 +89,7 @@ function eval_split(split_index, max_batches)
 
     loader:reset_batch_pointer(split_index) -- move batch iteration pointer for this split to front
     local loss = 0
-    controller:reset()
+    model:reset()
 
     for i = 1,n do -- iterate over batches in the split
         -- fetch a batch
@@ -100,9 +107,9 @@ function eval_split(split_index, max_batches)
         for t=1,opt.seq_length do
             local input = one_hot:forward(x[{{}, t}])
 
-            local prediction = controller:step(input)
-            -- print("Input:", vis.simplestr(input[1]))
-            -- print("Prediction:", vis.simplestr(prediction[1]))
+            local prediction = model:step(input)
+            print("Input:", vis.simplestr(input[1]))
+            print("Prediction:", vis.simplestr(prediction[1]))
             loss = loss + criterion:forward(prediction, y[{{}, t}])
         end
         print(i .. '/' .. n .. '...')
@@ -118,7 +125,7 @@ function feval(x)
         params:copy(x)
     end
     grad_params:zero()
-    controller:reset()
+    model:reset()
 
     ------------------ get minibatch -------------------
     local x, y = loader:next_batch(1)
@@ -134,14 +141,14 @@ function feval(x)
     ------------------- forward pass -------------------
     local predictions = {}           -- softmax outputs
     local grad_outputs = {}
+    local inputs = {}
     local loss = 0
 
-    controller:training() -- make sure we are in correct mode (this is cheap, sets flag)
+    model:training() -- make sure we are in correct mode (this is cheap, sets flag)
     for t=1,opt.seq_length do
-        local input = one_hot:forward(x[{{}, t}])
-        -- print(input)
+        inputs[t] = one_hot:forward(x[{{}, t}])
 
-        predictions[t] = controller:step(input):clone()
+        predictions[t] = model:step(inputs[t]):clone()
         loss = loss + criterion:forward(predictions[t], y[{{}, t}])
 
         grad_outputs[t] = criterion:backward(predictions[t], y[{{}, t}]):clone()
@@ -154,7 +161,7 @@ function feval(x)
     loss = loss / opt.seq_length
     ------------------ backward pass -------------------
 
-    controller:backward(nil, grad_outputs)
+    model:backward(inputs, grad_outputs)
     grad_params:clamp(-opt.grad_clip, opt.grad_clip)
     -- grad_params:mul(-1)
     return loss, grad_params
@@ -197,7 +204,7 @@ for i = 1, iterations do
         local savefile = string.format('%s/lm_%s_epoch%.2f_%.4f.t7', opt.checkpoint_dir, opt.savefile, epoch, val_loss)
         print('saving checkpoint to ' .. savefile)
         local checkpoint = {}
-        checkpoint.controller = controller
+        checkpoint.model = model
         checkpoint.opt = opt
         checkpoint.train_losses = train_losses
         checkpoint.val_loss = val_loss

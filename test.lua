@@ -10,7 +10,7 @@ torch.manualSeed(0)
 opt = {
         vocab_size = 2,
         batch_size = 1,
-        seq_length = 2,
+        seq_length = 10,
         rnn_size = 1,
     }
 
@@ -99,6 +99,7 @@ controller:training()
 --]]
 
 function reset()
+    reset_alternation()
     controller:reset()
     predictions = {}
     grad_outputs = {}
@@ -116,7 +117,10 @@ function get_example()
     return input, target
 end
 
-alternation_value = 2
+function reset_alternation()
+    alternation_value = 1
+end
+
 function get_alternation_example()
     if alternation_value == 2 then
         alternation_value = 1
@@ -129,7 +133,7 @@ end
 function feval()
     reset()
     for t = 1, opt.seq_length do
-        input, target = get_example()
+        input, target = get_alternation_example()
 
         predictions[t] = controller:step(input)
         loss = loss + criterion:forward(predictions[t], target)

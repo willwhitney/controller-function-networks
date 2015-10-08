@@ -4,10 +4,10 @@ require 'nngraph'
 LSTM = require 'LSTM'
 KarpathyLSTM = require 'KarpathyLSTM'
 
-Controller, parent = torch.class('nn.Controller', 'nn.Module')
+SteppableLSTM, parent = torch.class('nn.SteppableLSTM', 'nn.Module')
 
 
-function Controller:__init(
+function SteppableLSTM:__init(
             input_dimension,
             output_dimension,
             num_units_per_layer,
@@ -31,15 +31,13 @@ function Controller:__init(
             KarpathyLSTM.lstm(self.num_units_per_layer, self.num_units_per_layer, 1, dropout))
     end
 
-    -- last layer smushes back down to output domain, then outputs (0-1) weights
-    self.decoder = nn.Sequential()
-    self.decoder:add(nn.Linear(self.num_units_per_layer, self.output_dimension))
-    self.decoder:add(nn.Sigmoid())
+    -- last layer smushes back down to output domain
+    self.decoder = nn.Linear(self.num_units_per_layer, self.output_dimension)
 
     self:reset()
 end
 
-function Controller:reset(batch_size)
+function SteppableLSTM:reset(batch_size)
     batch_size = batch_size or opt.batch_size
     self.trace = {}
     self.backtrace = {}
@@ -55,7 +53,7 @@ function Controller:reset(batch_size)
     end
 end
 
-function Controller:step(input)
+function SteppableLSTM:step(input)
     local current_input = input:clone()
     local step_trace = {}
     local output
@@ -93,7 +91,7 @@ function Controller:step(input)
     local decoder_output = self.decoder:forward(current_input)
     table.insert(step_trace, {
         inputs = current_input:clone(),
-        output = decoder_output:clone()
+        outputs = decoder_output:clone()
     })
 
     table.insert(self.trace, step_trace)
@@ -102,7 +100,7 @@ function Controller:step(input)
 end
 
 
-function Controller:backward(inputs, grad_outputs)
+function SteppableLSTM:backward(inputs, grad_outputs)
     local current_gradOutput
 
     -- make a set of zero gradients for the timestep after the last one
@@ -119,15 +117,14 @@ end
 
 -- this should only be used after the system has been run to completion
 -- at that point, it should be called in the reverse order of computation
-function Controller:backstep(input, gradOutput)
+function SteppableLSTM:backstep(timestep, gradOutput)
     -- make sure we have a trace at this timestep
-    -- assert(type(self.trace[timestep]) ~= nil)
-    local timestep = #self.trace
+    assert(type(self.trace[timestep]) ~= nil)
 
     -- if this is the last timestep, and it hasn't been done already,
     -- make a set of zero gradients for the timestep after the last one.
     -- this allows us to use the same code for the last timestep as for the others
-    if type(self.backtrace[timestep + 1] == nil) then
+    if timestep == #self.trace and type(self.backtrace[timestep + 1] == nil) then
         self.backtrace[#self.trace + 1] = self:buildFinalGradient()
     end
 
@@ -187,13 +184,10 @@ function Controller:backstep(input, gradOutput)
         self.gradInput = current_gradOutput
     end
 
-    -- get rid of the used trace
-    self.trace[timestep] = nil
-
     return current_gradOutput
 end
 
-function Controller:buildFinalGradient()
+function SteppableLSTM:buildFinalGradient()
     -- build a set of dummy (zero) gradients for a timestep that didn't happen
     local last_gradient = {}
     for i = 1, #self.network do
@@ -207,14 +201,14 @@ function Controller:buildFinalGradient()
     return last_gradient
 end
 
-function Controller:updateParameters(learningRate)
+function SteppableLSTM:updateParameters(learningRate)
     for i = 1, #self.network do
         self.network[i]:updateParameters(learningRate)
     end
     self.decoder:updateParameters(learningRate)
 end
 
-function Controller:zeroGradParameters()
+function SteppableLSTM:zeroGradParameters()
     for i = 1, #self.network do
         self.network[i]:zeroGradParameters()
     end
@@ -222,7 +216,7 @@ function Controller:zeroGradParameters()
 end
 
 -- taken from nn.Container
-function Controller:parameters()
+function SteppableLSTM:parameters()
     local function tinsert(to, from)
         if type(from) == 'table' then
             for i=1,#from do
@@ -249,14 +243,14 @@ function Controller:parameters()
     return w,gw
 end
 
-function Controller:training()
+function SteppableLSTM:training()
     for i = 1, #self.network do
         self.network[i]:training()
     end
     self.decoder:training()
 end
 
-function Controller:evaluate()
+function SteppableLSTM:evaluate()
     for i = 1, #self.network do
         self.network[i]:evaluate()
     end
