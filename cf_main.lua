@@ -11,7 +11,7 @@ require 'OneHot'
 local CharSplitLMMinibatchLoader = require 'CharSplitLMMinibatchLoader'
 
 require 'Controller'
-require 'CFNetwork'
+require 'CFNetwork_multistep'
 
 cmd = torch.CmdLine()
 cmd:text()
@@ -66,10 +66,11 @@ print('vocab size: ' .. vocab_size)
 
 model = nn.CFNetwork({
         input_dimension = vocab_size,
-        num_functions = 30,
+        num_functions = 20,
         controller_units_per_layer = opt.rnn_size,
         controller_num_layers = opt.num_layers,
         controller_dropout = opt.dropout,
+        steps_per_output = 3,
     })
 
 -- graph.dot(model.network[1].fg, 'layer', 'layer')
@@ -107,8 +108,8 @@ function eval_split(split_index, max_batches)
             local input = one_hot:forward(x[{{}, t}])
 
             local prediction = model:step(input)
-            print("Input:", vis.simplestr(input[1]))
-            print("Prediction:", vis.simplestr(prediction[1]))
+            -- print("Input:", vis.simplestr(input[1]))
+            -- print("Prediction:", vis.simplestr(prediction[1]))
             loss = loss + criterion:forward(prediction, y[{{}, t}])
         end
         print(i .. '/' .. n .. '...')
@@ -230,9 +231,9 @@ for i = 1, iterations do
     if loss0 == nil then
         loss0 = loss[1]
     end
-    -- if loss[1] > loss0 * 3 then
-    --     print('loss is exploding, aborting.')
-    --     print("loss0:", loss0, "loss[1]:", loss[1])
-    --     break -- halt
-    -- end
+    if loss[1] > loss0 * 3 then
+        print('loss is exploding, aborting.')
+        print("loss0:", loss0, "loss[1]:", loss[1])
+        break -- halt
+    end
 end

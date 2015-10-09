@@ -13,6 +13,8 @@ function CFNetwork:__init(options)
             options.controller_num_layers,
             options.controller_dropout)
 
+    self.steps_per_output = options.steps_per_output or 1
+
     self.functions = {}
     for i = 1, options.num_functions do
 
@@ -32,53 +34,75 @@ function CFNetwork:__init(options)
     end
 
     self.mixtable = nn.MixtureTable()
+    self:reset()
 end
 
 function CFNetwork:step(input)
-    local controller_output = self.controller:step(input)
-    -- print("Weights:", vis.simplestr(controller_output[1]))
+    local next_input = input
+    local step_trace = {}
+    for substep = 1, self.steps_per_output do
+        local controller_output = self.controller:step(next_input)
 
-    local function_outputs = {}
-    for i = 1, #self.functions do
-        local function_output = self.functions[i]:forward(input)
-        -- print("Function " .. i .. " output:", vis.simplestr(function_output[1]))
-        table.insert(function_outputs, function_output)
+        local function_outputs = {}
+        for i = 1, #self.functions do
+            local function_output = self.functions[i]:forward(next_input):clone()
+            table.insert(function_outputs, function_output)
+        end
+
+        local current_output = self.mixtable:forward({controller_output, function_outputs}):clone()
+        local substep_trace = {
+                input = next_input,
+                output = current_output,
+            }
+        table.insert(step_trace, substep_trace)
+        next_input = current_output
     end
 
-    self.output = self.mixtable:forward({controller_output, function_outputs})
-    -- print("Final output:", vis.simplestr(self.output[1]))
+    table.insert(self.trace, step_trace)
 
+    self.output = next_input
     return self.output
 end
 
 function CFNetwork:backstep(input, gradOutput)
-    local step_trace = self.controller.trace[#self.controller.trace]
-    local controller_output = step_trace[#step_trace].output
-
-    -- forward the functions to guarantee correct operation
-    local function_outputs = {}
-    for i = 1, #self.functions do
-        table.insert(function_outputs, self.functions[i]:forward(input))
+    local timestep = #self.trace
+    local step_trace = self.trace[timestep]
+    if step_trace[1].input ~= input then
+        error("CFNetwork:backstep has been called in the wrong order.")
     end
-    self.mixtable:forward({controller_output, function_outputs})
+    local current_gradInput = gradOutput
 
-    local grad_table = self.mixtable:backward(
-            {controller_output, function_outputs},
-            gradOutput)
+    for substep = self.steps_per_output, 1, -1 do
+        local substep_trace = step_trace[substep]
+        local substep_input = substep_trace.input
 
-    local grad_controller_output = grad_table[1]
-    local grad_function_outputs = grad_table[2]
-    -- print("grad_controller_output:", vis.simplestr(grad_controller_output[1]))
-    -- for i = 1, #grad_function_outputs do
-    --     print("grad_function_outputs for function "..i ..":", vis.simplestr(grad_function_outputs[i][1]))
-    -- end
+        local controller_step_trace = self.controller.trace[#self.controller.trace]
+        local controller_output = controller_step_trace[#controller_step_trace].output
 
-    self.gradInput = self.controller:backstep(nil, grad_controller_output):clone()
+        -- forward the functions to guarantee correct operation
+        local function_outputs = {}
+        for i = 1, #self.functions do
+            table.insert(function_outputs, self.functions[i]:forward(substep_input))
+        end
+        self.mixtable:forward({controller_output, function_outputs})
 
-    for i = 1, #self.functions do
+        local grad_table = self.mixtable:backward(
+                {controller_output, function_outputs},
+                current_gradInput)
 
-        self.gradInput = self.gradInput + self.functions[i]:backward(input, grad_function_outputs[i])
+        local grad_controller_output = grad_table[1]
+        local grad_function_outputs = grad_table[2]
+
+        current_gradInput = self.controller:backstep(nil, grad_controller_output):clone()
+        for i = 1, #self.functions do
+            current_gradInput = current_gradInput + self.functions[i]:backward(input, grad_function_outputs[i])
+        end
     end
+    self.gradInput = current_gradInput
+
+    -- pop this timestep from our stack
+    self.trace[timestep] = nil
+    return self.gradInput
 end
 
 function CFNetwork:backward(inputs, grad_outputs)
@@ -88,6 +112,7 @@ function CFNetwork:backward(inputs, grad_outputs)
 end
 
 function CFNetwork:reset(batch_size)
+    self.trace = {}
     batch_size = batch_size or opt.batch_size
     self.controller:reset(batch_size)
 end
