@@ -36,6 +36,8 @@ function Controller:__init(
     self.decoder:add(nn.Linear(self.num_units_per_layer, self.output_dimension))
     self.decoder:add(nn.Sigmoid())
 
+    -- self.decoder = nn.Linear(self.num_units_per_layer, self.output_dimension)
+
     self:reset()
 end
 
@@ -107,10 +109,12 @@ function Controller:backward(inputs, grad_outputs)
 
     -- make a set of zero gradients for the timestep after the last one
     -- allows us to use the same code for the last timestep as for the others
-    self.backtrace[#self.trace + 1] = self:buildFinalGradient()
+    -- self.backtrace[#self.trace + 1] = self:buildFinalGradient()
 
-    for timestep = #self.trace, 1, -1 do
-        self:backstep(timestep, grad_outputs[timestep])
+    for timestep = #grad_outputs, 1, -1 do
+        -- print('-------')
+        -- print(timestep)
+        self:backstep(self.trace[timestep].input, grad_outputs[timestep])
     end
     self.gradInput = current_gradOutput
     return self.gradInput
@@ -123,12 +127,18 @@ function Controller:backstep(input, gradOutput)
     -- make sure we have a trace at this timestep
     -- assert(type(self.trace[timestep]) ~= nil)
     local timestep = #self.trace
+    -- print(timestep)
+    -- print("Backward for timestep " .. timestep)
+    -- print(type(self.backtrace[timestep + 1]) == "nil")
 
     -- if this is the last timestep, and it hasn't been done already,
     -- make a set of zero gradients for the timestep after the last one.
     -- this allows us to use the same code for the last timestep as for the others
-    if type(self.backtrace[timestep + 1] == nil) then
+    if type(self.backtrace[timestep + 1]) == "nil" then
+        -- print("going to build a final gradient...")
         self.backtrace[#self.trace + 1] = self:buildFinalGradient()
+    else
+        -- print("not building a final gradient")
     end
 
     -- make sure that (with dummy in place for (#timesteps + 1)) we have gradients

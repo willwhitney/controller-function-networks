@@ -2,5 +2,6 @@
 .ipynb_checkpoints
 cv/
 sample.lua
+data/double_alternation/
 data/alternation/
 data/ones/

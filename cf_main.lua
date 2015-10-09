@@ -21,8 +21,8 @@ cmd:text('Options')
 -- data
 cmd:option('-data_dir','data/tinyshakespeare','data directory. Should contain the file input.txt with input data')
 -- model params
-cmd:option('-rnn_size', 1, 'size of LSTM internal state')
-cmd:option('-num_layers', 1, 'number of layers in the LSTM')
+cmd:option('-rnn_size', 128, 'size of LSTM internal state')
+cmd:option('-num_layers', 2, 'number of layers in the LSTM')
 cmd:option('-model', 'lstm', 'lstm,gru or rnn')
 -- optimization
 cmd:option('-learning_rate',2e-3,'learning rate')
@@ -30,7 +30,7 @@ cmd:option('-learning_rate_decay',0.97,'learning rate decay')
 cmd:option('-learning_rate_decay_after',10,'in number of epochs, when to start decaying the learning rate')
 cmd:option('-decay_rate',0.95,'decay rate for rmsprop')
 cmd:option('-dropout',0,'dropout for regularization, used after each RNN hidden layer. 0 = no dropout')
-cmd:option('-seq_length',10,'number of timesteps to unroll for')
+cmd:option('-seq_length',50,'number of timesteps to unroll for')
 cmd:option('-batch_size',30,'number of sequences to train on in parallel')
 cmd:option('-max_epochs',200,'number of full passes through the training data')
 cmd:option('-grad_clip',5,'clip gradients at this value')
@@ -39,7 +39,7 @@ cmd:option('-val_frac',0.05,'fraction of data that goes into validation set')
             -- test_frac will be computed as (1 - train_frac - val_frac)
 cmd:option('-init_from', '', 'initialize network parameters from checkpoint at this path')
 -- bookkeeping
-cmd:option('-seed',123,'torch manual random number generator seed')
+cmd:option('-seed',12,'torch manual random number generator seed')
 cmd:option('-print_every',1,'how many steps/minibatches between printing out the loss')
 cmd:option('-eval_val_every',1000,'every how many iterations should we evaluate on validation data?')
 -- cmd:option('-eval_val_every',10,'every how many iterations should we evaluate on validation data?')
@@ -64,10 +64,9 @@ local vocab_size = loader.vocab_size  -- the number of distinct characters
 local vocab = loader.vocab_mapping
 print('vocab size: ' .. vocab_size)
 
-
 model = nn.CFNetwork({
         input_dimension = vocab_size,
-        num_functions = 2,
+        num_functions = 30,
         controller_units_per_layer = opt.rnn_size,
         controller_num_layers = opt.num_layers,
         controller_dropout = opt.dropout,
@@ -231,9 +230,9 @@ for i = 1, iterations do
     if loss0 == nil then
         loss0 = loss[1]
     end
-    if loss[1] > loss0 * 3 then
-        print('loss is exploding, aborting.')
-        print("loss0:", loss0, "loss[1]:", loss[1])
-        break -- halt
-    end
+    -- if loss[1] > loss0 * 3 then
+    --     print('loss is exploding, aborting.')
+    --     print("loss0:", loss0, "loss[1]:", loss[1])
+    --     break -- halt
+    -- end
 end

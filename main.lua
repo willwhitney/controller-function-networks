@@ -10,6 +10,7 @@ require 'utils'
 require 'OneHot'
 local CharSplitLMMinibatchLoader = require 'CharSplitLMMinibatchLoader'
 
+-- require 'SteppableLSTM'
 require 'Controller'
 
 cmd = torch.CmdLine()
@@ -20,11 +21,11 @@ cmd:text('Options')
 -- data
 cmd:option('-data_dir','data/tinyshakespeare','data directory. Should contain the file input.txt with input data')
 -- model params
-cmd:option('-rnn_size', 3, 'size of LSTM internal state')
-cmd:option('-num_layers', 2, 'number of layers in the LSTM')
+cmd:option('-rnn_size', 10, 'size of LSTM internal state')
+cmd:option('-num_layers', 1, 'number of layers in the LSTM')
 cmd:option('-model', 'lstm', 'lstm,gru or rnn')
 -- optimization
-cmd:option('-learning_rate',2e-3,'learning rate')
+cmd:option('-learning_rate',2e-2,'learning rate')
 cmd:option('-learning_rate_decay',0.97,'learning rate decay')
 cmd:option('-learning_rate_decay_after',10,'in number of epochs, when to start decaying the learning rate')
 cmd:option('-decay_rate',0.95,'decay rate for rmsprop')
@@ -32,7 +33,7 @@ cmd:option('-dropout',0,'dropout for regularization, used after each RNN hidden 
 cmd:option('-seq_length',50,'number of timesteps to unroll for')
 cmd:option('-batch_size',30,'number of sequences to train on in parallel')
 cmd:option('-max_epochs',200,'number of full passes through the training data')
-cmd:option('-grad_clip',5,'clip gradients at this value')
+cmd:option('-grad_clip',50,'clip gradients at this value')
 cmd:option('-train_frac',0.95,'fraction of data that goes into train set')
 cmd:option('-val_frac',0.05,'fraction of data that goes into validation set')
             -- test_frac will be computed as (1 - train_frac - val_frac)
@@ -64,6 +65,7 @@ local vocab = loader.vocab_mapping
 print('vocab size: ' .. vocab_size)
 
 
+-- controller = nn.SteppableLSTM(vocab_size, vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
 controller = nn.Controller(vocab_size, vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
 
 -- graph.dot(controller.network[1].fg, 'layer', 'layer')

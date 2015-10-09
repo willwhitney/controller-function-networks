@@ -120,11 +120,12 @@ end
 function SteppableLSTM:backstep(timestep, gradOutput)
     -- make sure we have a trace at this timestep
     assert(type(self.trace[timestep]) ~= nil)
+    -- print("Backward for timestep " .. timestep)
 
     -- if this is the last timestep, and it hasn't been done already,
     -- make a set of zero gradients for the timestep after the last one.
     -- this allows us to use the same code for the last timestep as for the others
-    if timestep == #self.trace and type(self.backtrace[timestep + 1] == nil) then
+    if timestep == #self.trace and type(self.backtrace[timestep + 1]) == "nil" then
         self.backtrace[#self.trace + 1] = self:buildFinalGradient()
     end
 

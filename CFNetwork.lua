@@ -1,5 +1,6 @@
 require 'nn'
 require 'Controller'
+require 'Constant'
 require 'vis'
 
 CFNetwork, parent = torch.class('nn.CFNetwork', 'nn.Module')
@@ -14,6 +15,11 @@ function CFNetwork:__init(options)
 
     self.functions = {}
     for i = 1, options.num_functions do
+
+        -- local const = torch.zeros(opt.batch_size, options.input_dimension)
+        -- const[{{}, {i}}] = 1
+        -- local layer = nn.Constant(const)
+
         local layer = nn.Sequential()
         layer:add(nn.Linear(options.input_dimension, options.input_dimension))
         layer:add(nn.PReLU())
@@ -53,7 +59,7 @@ function CFNetwork:backstep(input, gradOutput)
     for i = 1, #self.functions do
         table.insert(function_outputs, self.functions[i]:forward(input))
     end
-
+    self.mixtable:forward({controller_output, function_outputs})
 
     local grad_table = self.mixtable:backward(
             {controller_output, function_outputs},
