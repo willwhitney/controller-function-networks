@@ -116,6 +116,7 @@ local seed_text = opt.primetext
 
 -- clear the state, set the batch size to 1
 model:reset(1)
+
 if string.len(seed_text) > 0 then
     gprint('seeding with ' .. seed_text)
     gprint('--------------------------')

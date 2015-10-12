@@ -3,9 +3,16 @@ require 'Controller'
 require 'Constant'
 require 'vis'
 
-CFNetwork, parent = torch.class('nn.CFNetwork', 'nn.Module')
+--[[
+This version is reserved for data that is iid between each :forward().
+It has no memory across calls to :forward; it performs multiple internal steps
+for each :forward, but does not backpropagate over multiple inputs.
+--]]
 
-function CFNetwork:__init(options)
+
+IIDCFNetwork, parent = torch.class('nn.IIDCFNetwork', 'nn.Module')
+
+function IIDCFNetwork:__init(options)
     self.controller = nn.Controller(
             options.input_dimension, -- needs to look at the whole input
             options.num_functions, -- outputs a weighting over all the functions
@@ -41,7 +48,7 @@ function CFNetwork:__init(options)
     self:reset()
 end
 
-function CFNetwork:step(input)
+function IIDCFNetwork:step(input)
     local next_input = input
     local step_trace = {}
     for substep = 1, self.steps_per_output do
@@ -68,11 +75,16 @@ function CFNetwork:step(input)
     return self.output
 end
 
-function CFNetwork:backstep(input, gradOutput)
+function IIDCFNetwork:forward(input)
+    self:reset()
+    return self:step(input)
+end
+
+function IIDCFNetwork:backstep(input, gradOutput)
     local timestep = #self.trace
     local step_trace = self.trace[timestep]
     if step_trace[1].input ~= input then
-        error("CFNetwork:backstep has been called in the wrong order.")
+        error("IIDCFNetwork:backstep has been called in the wrong order.")
     end
     local current_gradInput = gradOutput
 
@@ -109,20 +121,18 @@ function CFNetwork:backstep(input, gradOutput)
     return self.gradInput
 end
 
-function CFNetwork:backward(inputs, grad_outputs)
-    for timestep = #inputs, 1, -1 do
-        self:backstep(inputs[timestep], grad_outputs[timestep])
-    end
+function IIDCFNetwork:backward(input, gradOutput)
+    self:backstep(input, gradOutput)
 end
 
-function CFNetwork:reset(batch_size)
+function IIDCFNetwork:reset(batch_size)
     self.trace = {}
     batch_size = batch_size or opt.batch_size
     self.controller:reset(batch_size)
 end
 
 -- taken from nn.Container
-function CFNetwork:parameters()
+function IIDCFNetwork:parameters()
     local function tinsert(to, from)
         if type(from) == 'table' then
             for i=1,#from do
@@ -149,14 +159,14 @@ function CFNetwork:parameters()
     return w,gw
 end
 
-function CFNetwork:training()
+function IIDCFNetwork:training()
     for i = 1, #self.functions do
         self.functions[i]:training()
     end
     self.controller:training()
 end
 
-function CFNetwork:evaluate()
+function IIDCFNetwork:evaluate()
     for i = 1, #self.functions do
         self.functions[i]:evaluate()
     end
