@@ -24,7 +24,8 @@ function CFNetwork:__init(options)
 
         local layer = nn.Sequential()
         layer:add(nn.Linear(options.input_dimension, options.input_dimension))
-        layer:add(nn.PReLU())
+        layer:add(nn.Sigmoid())
+        -- layer:add(nn.PReLU())
 
         -- local layer = nn.Sequential()
         -- layer:add(nn.Linear(options.input_dimension, options.input_dimension))
@@ -39,6 +40,16 @@ function CFNetwork:__init(options)
 
     self.mixtable = nn.MixtureTable()
     self:reset()
+end
+
+function CFNetwork:forward(inputs)
+    self:reset()
+    local outputs = {}
+    for i = 1, #inputs do
+        outputs[i] = self:step(inputs[i]):clone()
+    end
+    self.output = outputs
+    return self.output
 end
 
 function CFNetwork:step(input)
@@ -59,12 +70,12 @@ function CFNetwork:step(input)
                 output = current_output,
             }
         table.insert(step_trace, substep_trace)
-        next_input = current_output
+        next_input = current_output:clone()
     end
 
     table.insert(self.trace, step_trace)
 
-    self.output = next_input
+    self.output = next_input:clone()
     return self.output
 end
 
@@ -99,7 +110,7 @@ function CFNetwork:backstep(input, gradOutput)
 
         current_gradInput = self.controller:backstep(nil, grad_controller_output):clone()
         for i = 1, #self.functions do
-            current_gradInput = current_gradInput + self.functions[i]:backward(input, grad_function_outputs[i])
+            current_gradInput = current_gradInput + self.functions[i]:backward(substep_input, grad_function_outputs[i])
         end
     end
     self.gradInput = current_gradInput
@@ -147,6 +158,62 @@ function CFNetwork:parameters()
         tinsert(gw,mgw)
     end
     return w,gw
+end
+
+
+-- taken from nn.Container
+function CFNetwork:function_parameters()
+    local function tinsert(to, from)
+        if type(from) == 'table' then
+            for i=1,#from do
+                tinsert(to,from[i])
+            end
+        else
+            table.insert(to,from)
+        end
+    end
+    local w = {}
+    local gw = {}
+    for i=1,#self.functions do
+        local mw,mgw = self.functions[i]:parameters()
+        if mw then
+            tinsert(w,mw)
+            tinsert(gw,mgw)
+        end
+    end
+    return w,gw
+end
+
+function CFNetwork:getFunctionParameters()
+    local f_parameters, f_gradParameters = self:function_parameters()
+    return parent.flatten(f_parameters), parent.flatten(f_gradParameters)
+end
+
+-- taken from nn.Container
+function CFNetwork:controller_parameters()
+    local function tinsert(to, from)
+        if type(from) == 'table' then
+            for i=1,#from do
+                tinsert(to,from[i])
+            end
+        else
+            table.insert(to,from)
+        end
+    end
+    local w = {}
+    local gw = {}
+
+    local mw,mgw = self.controller:parameters()
+    if mw then
+        tinsert(w,mw)
+        tinsert(gw,mgw)
+    end
+    return w,gw
+end
+
+function CFNetwork:getControllerParameters()
+    local c_parameters, c_gradParameters = self:controller_parameters()
+    return parent.flatten(c_parameters), parent.flatten(c_gradParameters)
 end
 
 function CFNetwork:training()

@@ -34,7 +34,7 @@ function Controller:__init(
     -- last layer smushes back down to output domain, then outputs (0-1) weights
     self.decoder = nn.Sequential()
     self.decoder:add(nn.Linear(self.num_units_per_layer, self.output_dimension))
-    self.decoder:add(nn.Sigmoid())
+    -- self.decoder:add(nn.Sigmoid())
 
     -- self.decoder = nn.Linear(self.num_units_per_layer, self.output_dimension)
 

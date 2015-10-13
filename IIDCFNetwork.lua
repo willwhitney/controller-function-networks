@@ -31,6 +31,7 @@ function IIDCFNetwork:__init(options)
 
         local layer = nn.Sequential()
         layer:add(nn.Linear(options.input_dimension, options.input_dimension))
+        -- layer:add(nn.Sigmoid())
         layer:add(nn.PReLU())
 
         -- local layer = nn.Sequential()
@@ -49,10 +50,11 @@ function IIDCFNetwork:__init(options)
 end
 
 function IIDCFNetwork:step(input)
-    local next_input = input
+    local next_input = input:clone()
     local step_trace = {}
     for substep = 1, self.steps_per_output do
         local controller_output = self.controller:step(next_input)
+        -- print(vis.simplestr(controller_output[1]))
 
         local function_outputs = {}
         for i = 1, #self.functions do
@@ -62,11 +64,11 @@ function IIDCFNetwork:step(input)
 
         local current_output = self.mixtable:forward({controller_output, function_outputs}):clone()
         local substep_trace = {
-                input = next_input,
-                output = current_output,
+                input = next_input:clone(),
+                output = current_output:clone(),
             }
         table.insert(step_trace, substep_trace)
-        next_input = current_output
+        next_input = current_output:clone()
     end
 
     table.insert(self.trace, step_trace)
@@ -83,10 +85,10 @@ end
 function IIDCFNetwork:backstep(input, gradOutput)
     local timestep = #self.trace
     local step_trace = self.trace[timestep]
-    if step_trace[1].input ~= input then
+    if step_trace[1].input:norm() ~= input:norm() then
         error("IIDCFNetwork:backstep has been called in the wrong order.")
     end
-    local current_gradInput = gradOutput
+    local current_gradOutput = gradOutput
 
     for substep = self.steps_per_output, 1, -1 do
         local substep_trace = step_trace[substep]
@@ -98,23 +100,23 @@ function IIDCFNetwork:backstep(input, gradOutput)
         -- forward the functions to guarantee correct operation
         local function_outputs = {}
         for i = 1, #self.functions do
-            table.insert(function_outputs, self.functions[i]:forward(substep_input))
+            table.insert(function_outputs, self.functions[i]:forward(substep_input):clone())
         end
         self.mixtable:forward({controller_output, function_outputs})
 
         local grad_table = self.mixtable:backward(
                 {controller_output, function_outputs},
-                current_gradInput)
+                current_gradOutput)
 
         local grad_controller_output = grad_table[1]
         local grad_function_outputs = grad_table[2]
 
-        current_gradInput = self.controller:backstep(nil, grad_controller_output):clone()
+        current_gradOutput = self.controller:backstep(nil, grad_controller_output):clone()
         for i = 1, #self.functions do
-            current_gradInput = current_gradInput + self.functions[i]:backward(input, grad_function_outputs[i])
+            current_gradOutput = current_gradOutput + self.functions[i]:backward(substep_input, grad_function_outputs[i])
         end
     end
-    self.gradInput = current_gradInput
+    self.gradInput = current_gradOutput
 
     -- pop this timestep from our stack
     self.trace[timestep] = nil
@@ -122,7 +124,7 @@ function IIDCFNetwork:backstep(input, gradOutput)
 end
 
 function IIDCFNetwork:backward(input, gradOutput)
-    self:backstep(input, gradOutput)
+    return self:backstep(input, gradOutput)
 end
 
 function IIDCFNetwork:reset(batch_size)
@@ -157,6 +159,62 @@ function IIDCFNetwork:parameters()
         tinsert(gw,mgw)
     end
     return w,gw
+end
+
+
+-- taken from nn.Container
+function IIDCFNetwork:function_parameters()
+    local function tinsert(to, from)
+        if type(from) == 'table' then
+            for i=1,#from do
+                tinsert(to,from[i])
+            end
+        else
+            table.insert(to,from)
+        end
+    end
+    local w = {}
+    local gw = {}
+    for i=1,#self.functions do
+        local mw,mgw = self.functions[i]:parameters()
+        if mw then
+            tinsert(w,mw)
+            tinsert(gw,mgw)
+        end
+    end
+    return w,gw
+end
+
+function IIDCFNetwork:getFunctionParameters()
+    local f_parameters, f_gradParameters = self:function_parameters()
+    return parent.flatten(f_parameters), parent.flatten(f_gradParameters)
+end
+
+-- taken from nn.Container
+function IIDCFNetwork:controller_parameters()
+    local function tinsert(to, from)
+        if type(from) == 'table' then
+            for i=1,#from do
+                tinsert(to,from[i])
+            end
+        else
+            table.insert(to,from)
+        end
+    end
+    local w = {}
+    local gw = {}
+
+    local mw,mgw = self.controller:parameters()
+    if mw then
+        tinsert(w,mw)
+        tinsert(gw,mgw)
+    end
+    return w,gw
+end
+
+function IIDCFNetwork:getControllerParameters()
+    local c_parameters, c_gradParameters = self:controller_parameters()
+    return parent.flatten(c_parameters), parent.flatten(c_gradParameters)
 end
 
 function IIDCFNetwork:training()

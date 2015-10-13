@@ -22,7 +22,8 @@ function CFNetwork:__init(options)
 
         local layer = nn.Sequential()
         layer:add(nn.Linear(options.input_dimension, options.input_dimension))
-        layer:add(nn.PReLU())
+        layer:add(nn.Sigmoid())
+        -- layer:add(nn.PReLU())
 
         table.insert(self.functions, layer)
     end
@@ -48,6 +49,15 @@ function CFNetwork:step(input)
     self.output = self.mixtable:forward({controller_output, function_outputs})
     -- print("Final output:", vis.simplestr(self.output[1]))
 
+    return self.output
+end
+
+function CFNetwork:forward(inputs)
+    local outputs = {}
+    for i = 1, #inputs do
+        outputs[i] = self:step(inputs[i]):clone()
+    end
+    self.output = outputs
     return self.output
 end
 
@@ -118,6 +128,61 @@ function CFNetwork:parameters()
         tinsert(gw,mgw)
     end
     return w,gw
+end
+
+-- taken from nn.Container
+function CFNetwork:function_parameters()
+    local function tinsert(to, from)
+        if type(from) == 'table' then
+            for i=1,#from do
+                tinsert(to,from[i])
+            end
+        else
+            table.insert(to,from)
+        end
+    end
+    local w = {}
+    local gw = {}
+    for i=1,#self.functions do
+        local mw,mgw = self.functions[i]:parameters()
+        if mw then
+            tinsert(w,mw)
+            tinsert(gw,mgw)
+        end
+    end
+    return w,gw
+end
+
+function CFNetwork:getFunctionParameters()
+    local f_parameters, f_gradParameters = self:function_parameters()
+    return parent.flatten(f_parameters), parent.flatten(f_gradParameters)
+end
+
+-- taken from nn.Container
+function CFNetwork:controller_parameters()
+    local function tinsert(to, from)
+        if type(from) == 'table' then
+            for i=1,#from do
+                tinsert(to,from[i])
+            end
+        else
+            table.insert(to,from)
+        end
+    end
+    local w = {}
+    local gw = {}
+
+    local mw,mgw = self.controller:parameters()
+    if mw then
+        tinsert(w,mw)
+        tinsert(gw,mgw)
+    end
+    return w,gw
+end
+
+function CFNetwork:getControllerParameters()
+    local c_parameters, c_gradParameters = self:controller_parameters()
+    return parent.flatten(c_parameters), parent.flatten(c_gradParameters)
 end
 
 function CFNetwork:training()

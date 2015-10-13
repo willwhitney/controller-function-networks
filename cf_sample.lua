@@ -132,7 +132,7 @@ else
     -- fill with uniform probabilities over characters (? hmm)
     gprint('missing seed text, using uniform probability over first character')
     gprint('--------------------------')
-    local char = torch.Tensor{math.random(#ivocab)}
+    local char = torch.Tensor{torch.rand(1):mul(#ivocab):round():add(1)}
     -- io.write(ivocab[char[1]])
     local input = one_hot:forward(char)
     -- graph.dot(model.network[1].fg, 'layer', 'layer')

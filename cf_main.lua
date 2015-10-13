@@ -11,6 +11,7 @@ require 'OneHot'
 local CharSplitLMMinibatchLoader = require 'CharSplitLMMinibatchLoader'
 
 require 'Controller'
+-- require 'CFNetwork'
 require 'CFNetwork_multistep'
 
 cmd = torch.CmdLine()
@@ -25,7 +26,7 @@ cmd:option('-rnn_size', 128, 'size of LSTM internal state')
 cmd:option('-num_layers', 2, 'number of layers in the LSTM')
 cmd:option('-model', 'lstm', 'lstm,gru or rnn')
 -- optimization
-cmd:option('-learning_rate',2e-3,'learning rate')
+cmd:option('-learning_rate',2e-4,'learning rate')
 cmd:option('-learning_rate_decay',0.97,'learning rate decay')
 cmd:option('-learning_rate_decay_after',2,'in number of epochs, when to start decaying the learning rate')
 cmd:option('-decay_rate',0.95,'decay rate for rmsprop')

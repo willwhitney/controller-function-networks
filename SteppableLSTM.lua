@@ -99,6 +99,15 @@ function SteppableLSTM:step(input)
     return self.output
 end
 
+function SteppableLSTM:forward(inputs)
+    self:reset()
+    local outputs = {}
+    for i = 1, #inputs do
+        outputs[i] = self:step(inputs[i]):clone()
+    end
+    self.output = outputs
+    return self.output
+end
 
 function SteppableLSTM:backward(inputs, grad_outputs)
     local current_gradOutput
@@ -106,11 +115,12 @@ function SteppableLSTM:backward(inputs, grad_outputs)
     -- make a set of zero gradients for the timestep after the last one
     -- allows us to use the same code for the last timestep as for the others
     self.backtrace[#self.trace + 1] = self:buildFinalGradient()
-
+    local gradInputs = {}
     for timestep = #self.trace, 1, -1 do
-        self:backstep(timestep, grad_outputs[timestep])
+        gradInputs[timestep] = self:backstep(timestep, grad_outputs[timestep]):clone()
     end
-    self.gradInput = current_gradOutput
+
+    self.gradInput = gradInputs
     return self.gradInput
 end
 
@@ -181,11 +191,8 @@ function SteppableLSTM:backstep(timestep, gradOutput)
     end
     self.backtrace[timestep] = step_backtrace
 
-    if timestep == 1 then
-        self.gradInput = current_gradOutput
-    end
-
-    return current_gradOutput
+    self.gradInput = current_gradOutput
+    return self.gradInput
 end
 
 function SteppableLSTM:buildFinalGradient()
