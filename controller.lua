@@ -34,7 +34,7 @@ function Controller:__init(
     -- last layer smushes back down to output domain, then outputs (0-1) weights
     self.decoder = nn.Sequential()
     self.decoder:add(nn.Linear(self.num_units_per_layer, self.output_dimension))
-    -- self.decoder:add(nn.Sigmoid())
+    self.decoder:add(nn.Sigmoid())
 
     -- self.decoder = nn.Linear(self.num_units_per_layer, self.output_dimension)
 
@@ -49,12 +49,22 @@ function Controller:reset(batch_size)
     -- create a first state with all previous outputs & cells set to zeros
     self.state = {}
     for i = 1, #self.network do
-        local layer_state = {
-                torch.zeros(batch_size, self.num_units_per_layer),  -- prev_c
-                torch.zeros(batch_size, self.num_units_per_layer),  -- prev_h
-            }
+        local layer_state
+        if self.decoder.modules[1].weight:type() == "torch.CudaTensor" then
+            layer_state = {
+                    torch.zeros(batch_size, self.num_units_per_layer):cuda(),  -- prev_c
+                    torch.zeros(batch_size, self.num_units_per_layer):cuda(),  -- prev_h
+                }
+        else
+            layer_state = {
+                    torch.zeros(batch_size, self.num_units_per_layer),  -- prev_c
+                    torch.zeros(batch_size, self.num_units_per_layer),  -- prev_h
+                }
+        end
+
         table.insert(self.state, layer_state)
     end
+    -- print(self.state)
 end
 
 function Controller:step(input)
@@ -100,6 +110,7 @@ function Controller:step(input)
 
     table.insert(self.trace, step_trace)
     self.output = decoder_output:clone()
+    -- print(vis.simplestr(self.output[1]))
     return self.output
 end
 
@@ -207,11 +218,19 @@ function Controller:buildFinalGradient()
     -- build a set of dummy (zero) gradients for a timestep that didn't happen
     local last_gradient = {}
     for i = 1, #self.network do
-        table.insert(last_gradient, {
-                torch.zeros(opt.batch_size, self.num_units_per_layer), -- dummy gradInput
-                torch.zeros(opt.batch_size, self.num_units_per_layer), -- dummy grad_prev_c
-                torch.zeros(opt.batch_size, self.num_units_per_layer), -- dummy grad_prev_h
-            })
+        if self.decoder.modules[1].weight:type() == "torch.CudaTensor" then
+            table.insert(last_gradient, {
+                    torch.zeros(opt.batch_size, self.num_units_per_layer):cuda(), -- dummy gradInput
+                    torch.zeros(opt.batch_size, self.num_units_per_layer):cuda(), -- dummy grad_prev_c
+                    torch.zeros(opt.batch_size, self.num_units_per_layer):cuda(), -- dummy grad_prev_h
+                })
+        else
+            table.insert(last_gradient, {
+                    torch.zeros(opt.batch_size, self.num_units_per_layer), -- dummy gradInput
+                    torch.zeros(opt.batch_size, self.num_units_per_layer), -- dummy grad_prev_c
+                    torch.zeros(opt.batch_size, self.num_units_per_layer), -- dummy grad_prev_h
+                })
+        end
     end
 
     return last_gradient
@@ -271,4 +290,18 @@ function Controller:evaluate()
         self.network[i]:evaluate()
     end
     self.decoder:evaluate()
+end
+
+function Controller:cuda()
+    for i = 1, #self.network do
+        self.network[i]:cuda()
+    end
+    self.decoder:cuda()
+end
+
+function Controller:float()
+    for i = 1, #self.network do
+        self.network[i]:float()
+    end
+    self.decoder:float()
 end

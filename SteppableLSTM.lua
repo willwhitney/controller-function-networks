@@ -45,10 +45,19 @@ function SteppableLSTM:reset(batch_size)
     -- create a first state with all previous outputs & cells set to zeros
     self.state = {}
     for i = 1, #self.network do
-        local layer_state = {
-                torch.zeros(batch_size, self.num_units_per_layer),  -- prev_c
-                torch.zeros(batch_size, self.num_units_per_layer),  -- prev_h
-            }
+        local layer_state
+        if self.decoder.weight:type() == "torch.CudaTensor" then
+            layer_state = {
+                    torch.zeros(batch_size, self.num_units_per_layer):cuda(),  -- prev_c
+                    torch.zeros(batch_size, self.num_units_per_layer):cuda(),  -- prev_h
+                }
+        else
+            layer_state = {
+                    torch.zeros(batch_size, self.num_units_per_layer),  -- prev_c
+                    torch.zeros(batch_size, self.num_units_per_layer),  -- prev_h
+                }
+        end
+
         table.insert(self.state, layer_state)
     end
 end
@@ -199,11 +208,19 @@ function SteppableLSTM:buildFinalGradient()
     -- build a set of dummy (zero) gradients for a timestep that didn't happen
     local last_gradient = {}
     for i = 1, #self.network do
-        table.insert(last_gradient, {
-                torch.zeros(opt.batch_size, self.num_units_per_layer), -- dummy gradInput
-                torch.zeros(opt.batch_size, self.num_units_per_layer), -- dummy grad_prev_c
-                torch.zeros(opt.batch_size, self.num_units_per_layer), -- dummy grad_prev_h
-            })
+        if self.decoder.weight:type() == "torch.CudaTensor" then
+            table.insert(last_gradient, {
+                    torch.zeros(opt.batch_size, self.num_units_per_layer):cuda(), -- dummy gradInput
+                    torch.zeros(opt.batch_size, self.num_units_per_layer):cuda(), -- dummy grad_prev_c
+                    torch.zeros(opt.batch_size, self.num_units_per_layer):cuda(), -- dummy grad_prev_h
+                })
+        else
+            table.insert(last_gradient, {
+                    torch.zeros(opt.batch_size, self.num_units_per_layer), -- dummy gradInput
+                    torch.zeros(opt.batch_size, self.num_units_per_layer), -- dummy grad_prev_c
+                    torch.zeros(opt.batch_size, self.num_units_per_layer), -- dummy grad_prev_h
+                })
+        end
     end
 
     return last_gradient

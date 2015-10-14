@@ -26,7 +26,7 @@ cmd:option('-rnn_size', 128, 'size of LSTM internal state')
 cmd:option('-num_layers', 2, 'number of layers in the LSTM')
 cmd:option('-model', 'lstm', 'lstm,gru or rnn')
 -- optimization
-cmd:option('-learning_rate',2e-4,'learning rate')
+cmd:option('-learning_rate',2e-3,'learning rate')
 cmd:option('-learning_rate_decay',0.97,'learning rate decay')
 cmd:option('-learning_rate_decay_after',2,'in number of epochs, when to start decaying the learning rate')
 cmd:option('-decay_rate',0.95,'decay rate for rmsprop')
@@ -48,8 +48,7 @@ cmd:option('-checkpoint_dir', 'cv', 'output directory where checkpoints get writ
 cmd:option('-savefile','lstm','filename to autosave the checkpont to. Will be inside checkpoint_dir/')
 -- GPU/CPU
 -- TODO: turn GPU back on
-cmd:option('-gpuid',-1,'which gpu to use. -1 = use CPU')
-cmd:option('-opencl',0,'use OpenCL (instead of CUDA)')
+cmd:option('-gpuid',0,'which gpu to use. -1 = use CPU')
 cmd:text()
 
 -- parse input params
@@ -78,6 +77,14 @@ model = nn.CFNetwork({
 
 criterion = nn.CrossEntropyCriterion()
 one_hot = OneHot(vocab_size)
+
+if opt.gpuid >= 0 then
+    require 'cutorch'
+    require 'cunn'
+    model:cuda()
+    criterion:cuda()
+    one_hot:cuda()
+end
 
 local params, grad_params = model:getParameters()
 params:uniform(-0.08, 0.08) -- small numbers uniform
@@ -130,15 +137,12 @@ function feval(x)
 
     ------------------ get minibatch -------------------
     local x, y = loader:next_batch(1)
-    if opt.gpuid >= 0 and opt.opencl == 0 then -- ship the input arrays to GPU
+    if opt.gpuid >= 0 then -- ship the input arrays to GPU
         -- have to convert to float because integers can't be cuda()'d
         x = x:float():cuda()
         y = y:float():cuda()
     end
-    if opt.gpuid >= 0 and opt.opencl == 1 then -- ship the input arrays to GPU
-        x = x:cl()
-        y = y:cl()
-    end
+
     ------------------- forward pass -------------------
     local predictions = {}           -- softmax outputs
     local grad_outputs = {}
@@ -150,9 +154,14 @@ function feval(x)
         inputs[t] = one_hot:forward(x[{{}, t}])
 
         predictions[t] = model:step(inputs[t]):clone()
+        if t == 4 then
+            vis.hist(model.controller.output[1])
+        end
+
         loss = loss + criterion:forward(predictions[t], y[{{}, t}])
 
         grad_outputs[t] = criterion:backward(predictions[t], y[{{}, t}]):clone()
+
 
         -- print("pred:", predictions[t][1])
         -- print("truth:", y[{{}, t}][1])
@@ -232,7 +241,7 @@ for i = 1, iterations do
     if loss0 == nil then
         loss0 = loss[1]
     end
-    if loss[1] > loss0 * 4 then
+    if loss[1] > loss0 * 3 then
         print('loss is exploding, aborting.')
         print("loss0:", loss0, "loss[1]:", loss[1])
         break -- halt

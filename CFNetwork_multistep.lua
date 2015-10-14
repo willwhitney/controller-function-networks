@@ -24,7 +24,7 @@ function CFNetwork:__init(options)
 
         local layer = nn.Sequential()
         layer:add(nn.Linear(options.input_dimension, options.input_dimension))
-        layer:add(nn.Sigmoid())
+        layer:add(nn.Tanh())
         -- layer:add(nn.PReLU())
 
         -- local layer = nn.Sequential()
@@ -220,6 +220,7 @@ function CFNetwork:training()
     for i = 1, #self.functions do
         self.functions[i]:training()
     end
+    self.mixtable:evaluate()
     self.controller:training()
 end
 
@@ -227,5 +228,22 @@ function CFNetwork:evaluate()
     for i = 1, #self.functions do
         self.functions[i]:evaluate()
     end
+    self.mixtable:evaluate()
     self.controller:evaluate()
+end
+
+function CFNetwork:cuda()
+    for i = 1, #self.functions do
+        self.functions[i]:cuda()
+    end
+    self.mixtable:cuda()
+    self.controller:cuda()
+end
+
+function CFNetwork:float()
+    for i = 1, #self.functions do
+        self.functions[i]:float()
+    end
+    self.mixtable:cuda()
+    self.controller:float()
 end

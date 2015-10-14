@@ -12,7 +12,7 @@ vis.colors = {
     RESET = '\27[0m'
 }
 
-vis.decimalPlaces = 6
+vis.decimalPlaces = 2
 
 function vis.lines(str)
     local t = {}
@@ -126,4 +126,15 @@ function vis.diff(a, b)
         error("Not sure what to do with this object.")
     end
     print(str)
+end
+
+function vis.hist(a)
+    tensor = a:clone()
+    tensor = tensor / tensor:clone():abs():max()
+    -- print(tensor:min())
+    tensor = tensor + (-tensor:min())
+    tensor:mul(10)
+    local str = vis.simplestr(tensor)
+    print(str)
+    os.execute('spark ' .. str)
 end

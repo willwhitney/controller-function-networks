@@ -217,16 +217,34 @@ function IIDCFNetwork:getControllerParameters()
     return parent.flatten(c_parameters), parent.flatten(c_gradParameters)
 end
 
-function IIDCFNetwork:training()
+function CFNetwork:training()
     for i = 1, #self.functions do
         self.functions[i]:training()
     end
+    self.mixtable:evaluate()
     self.controller:training()
 end
 
-function IIDCFNetwork:evaluate()
+function CFNetwork:evaluate()
     for i = 1, #self.functions do
         self.functions[i]:evaluate()
     end
+    self.mixtable:evaluate()
     self.controller:evaluate()
+end
+
+function CFNetwork:cuda()
+    for i = 1, #self.functions do
+        self.functions[i]:cuda()
+    end
+    self.mixtable:cuda()
+    self.controller:cuda()
+end
+
+function CFNetwork:float()
+    for i = 1, #self.functions do
+        self.functions[i]:float()
+    end
+    self.mixtable:cuda()
+    self.controller:float()
 end
