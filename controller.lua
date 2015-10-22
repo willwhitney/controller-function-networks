@@ -34,7 +34,7 @@ function Controller:__init(
     -- last layer smushes back down to output domain, then outputs (0-1) weights
     self.decoder = nn.Sequential()
     self.decoder:add(nn.Linear(self.num_units_per_layer, self.output_dimension))
-    self.decoder:add(nn.Sigmoid())
+    -- self.decoder:add(nn.Sigmoid())
 
     -- self.decoder = nn.Linear(self.num_units_per_layer, self.output_dimension)
 
@@ -111,6 +111,16 @@ function Controller:step(input)
     table.insert(self.trace, step_trace)
     self.output = decoder_output:clone()
     -- print(vis.simplestr(self.output[1]))
+    return self.output
+end
+
+function Controller:forward(inputs)
+    self:reset()
+    local outputs = {}
+    for i = 1, #inputs do
+        outputs[i] = self:step(inputs[i]):clone()
+    end
+    self.output = outputs
     return self.output
 end
 

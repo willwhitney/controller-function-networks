@@ -10,8 +10,8 @@ require 'utils'
 require 'OneHot'
 local CharSplitLMMinibatchLoader = require 'CharSplitLMMinibatchLoader'
 
-require 'SteppableLSTM'
--- require 'Controller'
+-- require 'SteppableLSTM'
+require 'Controller'
 
 cmd = torch.CmdLine()
 cmd:text()
@@ -64,8 +64,8 @@ local vocab = loader.vocab_mapping
 print('vocab size: ' .. vocab_size)
 
 
-controller = nn.SteppableLSTM(vocab_size, vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
--- controller = nn.Controller(vocab_size, vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
+-- controller = nn.SteppableLSTM(vocab_size, vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
+controller = nn.Controller(vocab_size, vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
 
 -- graph.dot(controller.network[1].fg, 'layer', 'layer')
 
@@ -106,6 +106,7 @@ function eval_split(split_index, max_batches)
             y = y:cl()
         end
         -- forward pass
+        
         for t=1,opt.seq_length do
             local input = one_hot:forward(x[{{}, t}])
 
