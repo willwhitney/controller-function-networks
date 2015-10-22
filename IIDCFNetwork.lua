@@ -245,6 +245,14 @@ function CFNetwork:float()
     for i = 1, #self.functions do
         self.functions[i]:float()
     end
-    self.mixtable:cuda()
+    self.mixtable:float()
     self.controller:float()
+end
+
+function CFNetwork:double()
+    for i = 1, #self.functions do
+        self.functions[i]:double()
+    end
+    self.mixtable:double()
+    self.controller:double()
 end

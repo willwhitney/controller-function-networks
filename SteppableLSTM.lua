@@ -281,3 +281,24 @@ function SteppableLSTM:evaluate()
     end
     self.decoder:evaluate()
 end
+
+function SteppableLSTM:cuda()
+    for i = 1, #self.network do
+        self.network[i]:cuda()
+    end
+    self.decoder:cuda()
+end
+
+function SteppableLSTM:float()
+    for i = 1, #self.network do
+        self.network[i]:float()
+    end
+    self.decoder:float()
+end
+
+function SteppableLSTM:double()
+    for i = 1, #self.network do
+        self.network[i]:double()
+    end
+    self.decoder:double()
+end

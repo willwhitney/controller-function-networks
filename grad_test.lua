@@ -20,7 +20,7 @@ opt = {
     controller_dropout = 0,
     steps_per_output = 5,
 }
-mode = 'multistep'
+mode = 'controller'
 
 
 function finiteDiff(model, input, target, p, gp)

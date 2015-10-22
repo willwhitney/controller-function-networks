@@ -2,7 +2,8 @@ require 'nn'
 require 'gnuplot'
 require 'optim'
 require 'nngraph'
-
+require 'cutorch'
+require 'cunn'
 require 'tools'
 require 'vis'
 
@@ -10,7 +11,7 @@ require 'utils'
 require 'OneHot'
 local CharSplitLMMinibatchLoader = require 'CharSplitLMMinibatchLoader'
 
-require 'Controller'
+-- require 'Controller'
 -- require 'CFNetwork'
 require 'CFNetwork_multistep'
 
@@ -32,13 +33,20 @@ cmd:option('-learning_rate_decay_after',2,'in number of epochs, when to start de
 cmd:option('-decay_rate',0.95,'decay rate for rmsprop')
 cmd:option('-dropout',0,'dropout for regularization, used after each RNN hidden layer. 0 = no dropout')
 cmd:option('-seq_length',50,'number of timesteps to unroll for')
+cmd:option('-steps_per_output',1,'number of feedback steps to run per output')
+cmd:option('-num_functions',65,'number of function layers to create')
+
+
 cmd:option('-batch_size',30,'number of sequences to train on in parallel')
+
 cmd:option('-max_epochs',20,'number of full passes through the training data')
 cmd:option('-grad_clip',3,'clip gradients at this value')
 cmd:option('-train_frac',0.95,'fraction of data that goes into train set')
 cmd:option('-val_frac',0.05,'fraction of data that goes into validation set')
             -- test_frac will be computed as (1 - train_frac - val_frac)
 cmd:option('-init_from', '', 'initialize network parameters from checkpoint at this path')
+
+
 -- bookkeeping
 cmd:option('-seed',123,'torch manual random number generator seed')
 cmd:option('-print_every',1,'how many steps/minibatches between printing out the loss')
@@ -46,9 +54,9 @@ cmd:option('-eval_val_every',1000,'every how many iterations should we evaluate 
 -- cmd:option('-eval_val_every',10,'every how many iterations should we evaluate on validation data?')
 cmd:option('-checkpoint_dir', 'cv', 'output directory where checkpoints get written')
 cmd:option('-savefile','lstm','filename to autosave the checkpont to. Will be inside checkpoint_dir/')
+
 -- GPU/CPU
--- TODO: turn GPU back on
-cmd:option('-gpuid',0,'which gpu to use. -1 = use CPU')
+cmd:option('-gpuid',-1,'which gpu to use. -1 = use CPU')
 cmd:text()
 
 -- parse input params
@@ -64,30 +72,52 @@ local vocab_size = loader.vocab_size  -- the number of distinct characters
 local vocab = loader.vocab_mapping
 print('vocab size: ' .. vocab_size)
 
-model = nn.CFNetwork({
-        input_dimension = vocab_size,
-        num_functions = vocab_size,
-        controller_units_per_layer = opt.rnn_size,
-        controller_num_layers = opt.num_layers,
-        controller_dropout = opt.dropout,
-        steps_per_output = 1,
-    })
+local params, grad_params
+if opt.init_from ~= '' then
+    checkpoint = torch.load(opt.init_from)
+    model = checkpoint.model
+    params, grad_params = model:getParameters()
 
--- graph.dot(model.network[1].fg, 'layer', 'layer')
+    local vocab_compatible = true
+    for c,i in pairs(checkpoint.vocab) do
+        if not vocab[c] == i then
+            vocab_compatible = false
+        end
+    end
+    assert(vocab_compatible, 'error, the character vocabulary for this dataset and the one in the saved checkpoint are not the same. This is trouble.')
+    -- overwrite model settings based on checkpoint to ensure compatibility
+    print('overwriting rnn_size=' .. checkpoint.opt.rnn_size .. ', num_layers=' .. checkpoint.opt.num_layers .. checkpoint.opt.steps_per_output .. ', steps_per_output=' .. checkpoint.opt.num_functions .. ', num_functions=' .. ' based on the checkpoint.')
+    opt.rnn_size = checkpoint.opt.rnn_size
+    opt.num_layers = checkpoint.opt.num_layers
+    opt.steps_per_output = checkpoint.opt.steps_per_output
+    opt.num_functions = checkpoint.opt.num_functions
+
+else
+    model = nn.CFNetwork({
+            input_dimension = vocab_size,
+            num_functions = opt.num_functions,
+            controller_units_per_layer = opt.rnn_size,
+            controller_num_layers = opt.num_layers,
+            controller_dropout = opt.dropout,
+            steps_per_output = opt.steps_per_output,
+        })
+
+    if opt.gpuid >= 0 then
+        model:cuda()
+    end
+
+    params, grad_params = model:getParameters()
+    params:uniform(-0.08, 0.08) -- small numbers uniform
+end
 
 criterion = nn.CrossEntropyCriterion()
 one_hot = OneHot(vocab_size)
 
-if opt.gpuid >= 0 then
-    require 'cutorch'
-    require 'cunn'
-    model:cuda()
-    criterion:cuda()
-    one_hot:cuda()
-end
+-- if model.functions[1].modules[1].weight:type() == "torch.CudaTensor" then
+--     criterion:cuda()
+--     one_hot:cuda()
+-- end
 
-local params, grad_params = model:getParameters()
-params:uniform(-0.08, 0.08) -- small numbers uniform
 
 -- evaluate the loss over an entire split
 function eval_split(split_index, max_batches)
@@ -102,14 +132,10 @@ function eval_split(split_index, max_batches)
     for i = 1,n do -- iterate over batches in the split
         -- fetch a batch
         local x, y = loader:next_batch(split_index)
-        if opt.gpuid >= 0 and opt.opencl == 0 then -- ship the input arrays to GPU
+        if opt.gpuid >= 0 then -- ship the input arrays to GPU
             -- have to convert to float because integers can't be cuda()'d
             x = x:float():cuda()
             y = y:float():cuda()
-        end
-        if opt.gpuid >= 0 and opt.opencl == 1 then -- ship the input arrays to GPU
-            x = x:cl()
-            y = y:cl()
         end
         -- forward pass
         for t=1,opt.seq_length do

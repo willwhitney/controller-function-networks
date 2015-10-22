@@ -62,6 +62,7 @@ function vis.simplestr(tensor)
     -- return str
     -- print("tensor", tensor)
     -- print("tensor1", tensor[1])
+    -- print(tensor)
     str = string.format("%." .. vis.decimalPlaces .. "f", tensor[1])
     for i = 2, tensor:size(1) do
         str = str .. string.format(" %." .. vis.decimalPlaces .. "f", tensor[i])
@@ -135,6 +136,6 @@ function vis.hist(a)
     tensor = tensor + (-tensor:min())
     tensor:mul(10)
     local str = vis.simplestr(tensor)
-    print(str)
+    -- print(str)
     os.execute('spark ' .. str)
 end

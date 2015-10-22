@@ -25,6 +25,8 @@ function CFNetwork:__init(options)
         layer:add(nn.Sigmoid())
         -- layer:add(nn.ReLU())
 
+        -- local layer = KarpathyLSTM.lstm(options.input_dimension, options.input_dimension, 1, dropout)
+
         table.insert(self.functions, layer)
     end
 
@@ -214,6 +216,14 @@ function CFNetwork:float()
     for i = 1, #self.functions do
         self.functions[i]:float()
     end
-    self.mixtable:cuda()
+    self.mixtable:float()
     self.controller:float()
+end
+
+function CFNetwork:double()
+    for i = 1, #self.functions do
+        self.functions[i]:double()
+    end
+    self.mixtable:double()
+    self.controller:double()
 end

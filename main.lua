@@ -46,8 +46,7 @@ cmd:option('-eval_val_every',1000,'every how many iterations should we evaluate 
 cmd:option('-checkpoint_dir', 'cv', 'output directory where checkpoints get written')
 cmd:option('-savefile','lstm','filename to autosave the checkpont to. Will be inside checkpoint_dir/')
 -- GPU/CPU
--- TODO: turn GPU back on
-cmd:option('-gpuid',-1,'which gpu to use. -1 = use CPU')
+cmd:option('-gpuid',0,'which gpu to use. -1 = use CPU')
 cmd:option('-opencl',0,'use OpenCL (instead of CUDA)')
 cmd:text()
 
@@ -72,6 +71,14 @@ controller = nn.SteppableLSTM(vocab_size, vocab_size, opt.rnn_size, opt.num_laye
 
 criterion = nn.CrossEntropyCriterion()
 one_hot = OneHot(vocab_size)
+
+if opt.gpuid >= 0 then
+    require 'cutorch'
+    require 'cunn'
+    controller:cuda()
+    criterion:cuda()
+    one_hot:cuda()
+end
 
 local params, grad_params = controller:getParameters()
 params:uniform(-0.08, 0.08) -- small numbers uniform
