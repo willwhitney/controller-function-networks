@@ -64,9 +64,10 @@ function Controller:reset(batch_size)
 
         table.insert(self.state, layer_state)
     end
-    -- print(self.state)
 end
 
+-- take one timestep with this input
+-- if using the model this way, make sure to call reset() between sequences
 function Controller:step(input)
     local current_input = input:clone()
     local step_trace = {}
@@ -110,10 +111,10 @@ function Controller:step(input)
 
     table.insert(self.trace, step_trace)
     self.output = decoder_output:clone()
-    -- print(vis.simplestr(self.output[1]))
     return self.output
 end
 
+-- step forward on a table of inputs representing the sequence
 function Controller:forward(inputs)
     self:reset()
     local outputs = {}
@@ -125,6 +126,7 @@ function Controller:forward(inputs)
 end
 
 
+-- backpropagate on a table of inputs and a table of grad_outputs
 function Controller:backward(inputs, grad_outputs)
     local current_gradOutput
 
@@ -133,8 +135,6 @@ function Controller:backward(inputs, grad_outputs)
     -- self.backtrace[#self.trace + 1] = self:buildFinalGradient()
 
     for timestep = #grad_outputs, 1, -1 do
-        -- print('-------')
-        -- print(timestep)
         self:backstep(self.trace[timestep].input, grad_outputs[timestep])
     end
     self.gradInput = current_gradOutput
@@ -145,21 +145,13 @@ end
 -- this should only be used after the system has been run to completion
 -- at that point, it should be called in the reverse order of computation
 function Controller:backstep(input, gradOutput)
-    -- make sure we have a trace at this timestep
-    -- assert(type(self.trace[timestep]) ~= nil)
     local timestep = #self.trace
-    -- print(timestep)
-    -- print("Backward for timestep " .. timestep)
-    -- print(type(self.backtrace[timestep + 1]) == "nil")
 
     -- if this is the last timestep, and it hasn't been done already,
     -- make a set of zero gradients for the timestep after the last one.
     -- this allows us to use the same code for the last timestep as for the others
     if type(self.backtrace[timestep + 1]) == "nil" then
-        -- print("going to build a final gradient...")
         self.backtrace[#self.trace + 1] = self:buildFinalGradient()
-    else
-        -- print("not building a final gradient")
     end
 
     -- make sure that (with dummy in place for (#timesteps + 1)) we have gradients

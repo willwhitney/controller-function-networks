@@ -31,8 +31,12 @@ function SteppableLSTM:__init(
             KarpathyLSTM.lstm(self.num_units_per_layer, self.num_units_per_layer, 1, dropout))
     end
 
-    -- last layer smushes back down to output domain
-    self.decoder = nn.Linear(self.num_units_per_layer, self.output_dimension)
+    -- last layer smushes back down to output domain, then outputs (0-1) weights
+    self.decoder = nn.Sequential()
+    self.decoder:add(nn.Linear(self.num_units_per_layer, self.output_dimension))
+    -- self.decoder:add(nn.Sigmoid())
+
+    -- self.decoder = nn.Linear(self.num_units_per_layer, self.output_dimension)
 
     self:reset()
 end
@@ -46,7 +50,7 @@ function SteppableLSTM:reset(batch_size)
     self.state = {}
     for i = 1, #self.network do
         local layer_state
-        if self.decoder.weight:type() == "torch.CudaTensor" then
+        if self.decoder.modules[1].weight:type() == "torch.CudaTensor" then
             layer_state = {
                     torch.zeros(batch_size, self.num_units_per_layer):cuda(),  -- prev_c
                     torch.zeros(batch_size, self.num_units_per_layer):cuda(),  -- prev_h
@@ -62,6 +66,8 @@ function SteppableLSTM:reset(batch_size)
     end
 end
 
+-- take one timestep with this input
+-- if using the model this way, make sure to call reset() between sequences
 function SteppableLSTM:step(input)
     local current_input = input:clone()
     local step_trace = {}
@@ -100,7 +106,7 @@ function SteppableLSTM:step(input)
     local decoder_output = self.decoder:forward(current_input)
     table.insert(step_trace, {
         inputs = current_input:clone(),
-        outputs = decoder_output:clone()
+        output = decoder_output:clone()
     })
 
     table.insert(self.trace, step_trace)
@@ -108,6 +114,7 @@ function SteppableLSTM:step(input)
     return self.output
 end
 
+-- step forward on a table of inputs representing the sequence
 function SteppableLSTM:forward(inputs)
     self:reset()
     local outputs = {}
@@ -118,33 +125,32 @@ function SteppableLSTM:forward(inputs)
     return self.output
 end
 
+
+-- backpropagate on a table of inputs and a table of grad_outputs
 function SteppableLSTM:backward(inputs, grad_outputs)
     local current_gradOutput
 
     -- make a set of zero gradients for the timestep after the last one
     -- allows us to use the same code for the last timestep as for the others
-    self.backtrace[#self.trace + 1] = self:buildFinalGradient()
-    local gradInputs = {}
-    for timestep = #self.trace, 1, -1 do
-        gradInputs[timestep] = self:backstep(timestep, grad_outputs[timestep]):clone()
-    end
+    -- self.backtrace[#self.trace + 1] = self:buildFinalGradient()
 
-    self.gradInput = gradInputs
+    for timestep = #grad_outputs, 1, -1 do
+        self:backstep(self.trace[timestep].input, grad_outputs[timestep])
+    end
+    self.gradInput = current_gradOutput
     return self.gradInput
 end
 
 
 -- this should only be used after the system has been run to completion
 -- at that point, it should be called in the reverse order of computation
-function SteppableLSTM:backstep(timestep, gradOutput)
-    -- make sure we have a trace at this timestep
-    assert(type(self.trace[timestep]) ~= nil)
-    -- print("Backward for timestep " .. timestep)
+function SteppableLSTM:backstep(input, gradOutput)
+    local timestep = #self.trace
 
     -- if this is the last timestep, and it hasn't been done already,
     -- make a set of zero gradients for the timestep after the last one.
     -- this allows us to use the same code for the last timestep as for the others
-    if timestep == #self.trace and type(self.backtrace[timestep + 1]) == "nil" then
+    if type(self.backtrace[timestep + 1]) == "nil" then
         self.backtrace[#self.trace + 1] = self:buildFinalGradient()
     end
 
@@ -200,15 +206,21 @@ function SteppableLSTM:backstep(timestep, gradOutput)
     end
     self.backtrace[timestep] = step_backtrace
 
-    self.gradInput = current_gradOutput
-    return self.gradInput
+    if timestep == 1 then
+        self.gradInput = current_gradOutput
+    end
+
+    -- get rid of the used trace
+    self.trace[timestep] = nil
+
+    return current_gradOutput
 end
 
 function SteppableLSTM:buildFinalGradient()
     -- build a set of dummy (zero) gradients for a timestep that didn't happen
     local last_gradient = {}
     for i = 1, #self.network do
-        if self.decoder.weight:type() == "torch.CudaTensor" then
+        if self.decoder.modules[1].weight:type() == "torch.CudaTensor" then
             table.insert(last_gradient, {
                     torch.zeros(opt.batch_size, self.num_units_per_layer):cuda(), -- dummy gradInput
                     torch.zeros(opt.batch_size, self.num_units_per_layer):cuda(), -- dummy grad_prev_c
@@ -294,11 +306,4 @@ function SteppableLSTM:float()
         self.network[i]:float()
     end
     self.decoder:float()
-end
-
-function SteppableLSTM:double()
-    for i = 1, #self.network do
-        self.network[i]:double()
-    end
-    self.decoder:double()
 end
