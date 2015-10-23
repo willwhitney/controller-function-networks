@@ -2,8 +2,6 @@ require 'nn'
 require 'gnuplot'
 require 'optim'
 require 'nngraph'
-require 'cutorch'
-require 'cunn'
 require 'tools'
 require 'vis'
 
@@ -59,7 +57,7 @@ cmd:option('-seed',123,'torch manual random number generator seed')
 cmd:option('-print_every',1,'how many steps/minibatches between printing out the loss')
 cmd:option('-eval_val_every',1000,'every how many iterations should we evaluate on validation data?')
 -- cmd:option('-eval_val_every',10,'every how many iterations should we evaluate on validation data?')
-cmd:option('-checkpoint_dir', 'cv', 'output directory where checkpoints get written')
+cmd:option('-checkpoint_dir', 'networks', 'output directory where checkpoints get written')
 cmd:option('-name','lstm','filename to autosave the checkpont to. Will be inside checkpoint_dir/')
 
 -- GPU/CPU
@@ -69,6 +67,11 @@ cmd:text()
 -- parse input params
 opt = cmd:parse(arg)
 torch.manualSeed(opt.seed)
+
+if opt.gpuid >= 0 then
+    require 'cutorch'
+    require 'cunn'
+end
 
 local test_frac = math.max(0, 1 - (opt.train_frac + opt.val_frac))
 local split_sizes = {opt.train_frac, opt.val_frac, test_frac}

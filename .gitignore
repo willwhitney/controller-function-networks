@@ -5,3 +5,6 @@ sample.lua
 data/double_alternation/
 data/alternation/
 data/ones/
+slurm_logs/
+slurm_scripts/
+networks/
