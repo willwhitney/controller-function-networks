@@ -12,7 +12,8 @@ function Controller:__init(
             output_dimension,
             num_units_per_layer,
             num_layers,
-            dropout )
+            dropout,
+            nonlinearity )
     -- print("input size:", input_dimension)
     self.input_dimension = input_dimension
     self.output_dimension = output_dimension
@@ -34,6 +35,18 @@ function Controller:__init(
     -- last layer smushes back down to output domain, then outputs (0-1) weights
     self.decoder = nn.Sequential()
     self.decoder:add(nn.Linear(self.num_units_per_layer, self.output_dimension))
+
+    if nonlinearity == 'sigmoid' then
+        self.decoder:add(nn.Sigmoid())
+    elseif nonlinearity == 'tanh' then
+        self.decoder:add(nn.Tanh())
+    elseif nonlinearity == 'relu' then
+        self.decoder:add(nn.ReLU())
+    elseif nonlinearity == 'none' then
+
+    else
+        error("Must specify a nonlinearity for the controller.")
+    end
     -- self.decoder:add(nn.Sigmoid())
 
     -- self.decoder = nn.Linear(self.num_units_per_layer, self.output_dimension)

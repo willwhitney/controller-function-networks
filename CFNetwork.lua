@@ -11,7 +11,8 @@ function CFNetwork:__init(options)
             options.num_functions, -- outputs a weighting over all the functions
             options.controller_units_per_layer,
             options.controller_num_layers,
-            options.controller_dropout)
+            options.controller_dropout,
+            options.controller_nonlinearity )
 
     self.functions = {}
     for i = 1, options.num_functions do
@@ -22,7 +23,20 @@ function CFNetwork:__init(options)
 
         local layer = nn.Sequential()
         layer:add(nn.Linear(options.input_dimension, options.input_dimension))
-        layer:add(nn.Sigmoid())
+        -- layer:add(nn.Sigmoid())
+
+        if options.function_nonlinearity == 'sigmoid' then
+            layer:add(nn.Sigmoid())
+        elseif options.function_nonlinearity == 'tanh' then
+            layer:add(nn.Tanh())
+        elseif options.function_nonlinearity == 'relu' then
+            layer:add(nn.ReLU())
+        elseif options.function_nonlinearity == 'none' then
+
+        else
+            error("Must specify a nonlinearity for the functions.")
+        end
+
         -- layer:add(nn.ReLU())
 
         -- local layer = KarpathyLSTM.lstm(options.input_dimension, options.input_dimension, 1, dropout)
