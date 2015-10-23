@@ -112,4 +112,7 @@ for job in jobs:
             slurmfile.write(jobcommand)
 
         if not dry_run:
-            os.system("sbatch -N 1 -c 1 --gres=gpu:1 -p gpu --time=6-23:00:00 slurm_scripts/" + jobname + ".slurm &")
+            if job.gpuid >= 0:
+                os.system("sbatch -N 1 -c 1 --gres=gpu:1 -p gpu --time=6-23:00:00 slurm_scripts/" + jobname + ".slurm &")
+            else:
+                os.system("sbatch -N 1 -c 2 --time=6-23:00:00 slurm_scripts/" + jobname + ".slurm &")

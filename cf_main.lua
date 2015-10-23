@@ -40,7 +40,7 @@ cmd:option('-num_functions',65,'number of function layers to create')
 
 cmd:option('-controller_nonlinearity','sigmoid','nonlinearity for output of controller. Sets the range of the weights.')
 cmd:option('-function_nonlinearity','tanh','nonlinearity for functions. sets range of function output')
-cmd:option('-num_functions',65,'number of function layers to create')
+-- cmd:option('-num_functions',65,'number of function layers to create')
 
 
 
