@@ -110,6 +110,8 @@ else
             controller_num_layers = opt.num_layers,
             controller_dropout = opt.dropout,
             steps_per_output = opt.steps_per_output,
+            controller_nonlinearity = opt.controller_nonlinearity,
+            function_nonlinearity = opt.function_nonlinearity,
         })
 
     if opt.gpuid >= 0 then
