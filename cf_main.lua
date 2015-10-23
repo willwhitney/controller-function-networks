@@ -83,8 +83,8 @@ local vocab = loader.vocab_mapping
 print('vocab size: ' .. vocab_size)
 
 local params, grad_params
-if opt.init_from ~= '' then
-    checkpoint = torch.load(opt.init_from)
+if opt.import ~= '' then
+    checkpoint = torch.load(opt.import)
     model = checkpoint.model
     params, grad_params = model:getParameters()
 
