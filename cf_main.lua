@@ -250,7 +250,7 @@ for i = 1, iterations do
         val_losses[i] = val_loss
         print(string.format('[epoch %.3f] Validation loss: %6.8f', epoch, val_loss))
 
-        local savename = string.format('%s/lm_%s_epoch%.2f_%.4f', opt.checkpoint_dir, opt.name, epoch, val_loss)
+        local savename = string.format('%s/%s_epoch%.2f_%.4f', opt.checkpoint_dir, opt.name, epoch, val_loss)
         print('saving checkpoint to ' .. savename)
         local checkpoint = {}
         checkpoint.model = model
@@ -271,6 +271,11 @@ for i = 1, iterations do
         end
         f:flush()
         f:close()
+
+        local val_loss_log = io.open(savename ..'.val_loss.txt', 'a')
+        val_loss_log:write(val_loss)
+        f:flush()
+        f:close()
         -- os.execute("say 'Checkpoint saved.'")
         -- os.execute(string.format("say 'Epoch %.2f'", epoch))
     end
@@ -289,7 +294,7 @@ for i = 1, iterations do
     if loss0 == nil then
         loss0 = loss[1]
     end
-    if loss[1] > loss0 * 3 then
+    if loss[1] > loss0 * 8 then
         print('loss is exploding, aborting.')
         print("loss0:", loss0, "loss[1]:", loss[1])
         break -- halt
