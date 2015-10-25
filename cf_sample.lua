@@ -10,8 +10,7 @@ https://github.com/oxford-cs-ml-2015/practical6
 
 require 'torch'
 require 'nn'
-require 'cutorch'
-require 'cunn'
+
 
 require 'nngraph'
 require 'optim'
@@ -43,6 +42,11 @@ cmd:text()
 
 -- parse input params
 opt = cmd:parse(arg)
+
+if opt.gpuid >= 0 then
+    require 'cutorch'
+    require 'cunn'
+end
 
 -- gated print: simple utility function wrapping a print
 function gprint(str)
