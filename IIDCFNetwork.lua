@@ -232,7 +232,7 @@ function CFNetwork:training()
     for i = 1, #self.functions do
         self.functions[i]:training()
     end
-    self.mixtable:evaluate()
+    self.mixtable:training()
     self.controller:training()
 end
 

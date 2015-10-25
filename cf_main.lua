@@ -140,6 +140,7 @@ function eval_split(split_index, max_batches)
     loader:reset_batch_pointer(split_index) -- move batch iteration pointer for this split to front
     local loss = 0
     model:reset()
+    model:evaluate()
 
     for i = 1,n do -- iterate over batches in the split
         -- fetch a batch
