@@ -274,8 +274,8 @@ for i = 1, iterations do
 
         local val_loss_log = io.open(savename ..'.val_loss.txt', 'a')
         val_loss_log:write(val_loss)
-        f:flush()
-        f:close()
+        val_loss_log:flush()
+        val_loss_log:close()
         -- os.execute("say 'Checkpoint saved.'")
         -- os.execute(string.format("say 'Epoch %.2f'", epoch))
     end
