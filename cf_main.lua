@@ -58,7 +58,7 @@ cmd:option('-print_every',1,'how many steps/minibatches between printing out the
 cmd:option('-eval_val_every',1000,'every how many iterations should we evaluate on validation data?')
 -- cmd:option('-eval_val_every',10,'every how many iterations should we evaluate on validation data?')
 cmd:option('-checkpoint_dir', 'networks', 'output directory where checkpoints get written')
-cmd:option('-name','lstm','filename to autosave the checkpont to. Will be inside checkpoint_dir/')
+cmd:option('-name','cfnet','filename to autosave the checkpont to. Will be inside checkpoint_dir/')
 
 -- GPU/CPU
 cmd:option('-gpuid',-1,'which gpu to use. -1 = use CPU')
@@ -67,6 +67,18 @@ cmd:text()
 -- parse input params
 opt = cmd:parse(arg)
 torch.manualSeed(opt.seed)
+
+local savedir = string.format('%s/%s', opt.checkpoint_dir, opt.name)
+os.execute('mkdir -p '..savedir)
+
+-- log out the options used for creating this network to a file in the save directory.
+-- super useful when you're moving folders around so you don't lose track of things.
+local f = io.open(savedir .. '/opt.txt', 'w')
+for key, val in pairs(opt) do
+  f:write(tostring(key) .. ": " .. tostring(val) .. "\n")
+end
+f:flush()
+f:close()
 
 if opt.gpuid >= 0 then
     require 'cutorch'
@@ -250,8 +262,10 @@ for i = 1, iterations do
         val_losses[i] = val_loss
         print(string.format('[epoch %.3f] Validation loss: %6.8f', epoch, val_loss))
 
-        local savename = string.format('%s/%s_epoch%.2f_%.4f', opt.checkpoint_dir, opt.name, epoch, val_loss)
-        print('saving checkpoint to ' .. savename)
+
+
+        local model_file = string.format('%s/epoch%.2f_%.4f.t7', savedir, epoch, val_loss)
+        print('saving checkpoint to ' .. model_file)
         local checkpoint = {}
         checkpoint.model = model
         checkpoint.opt = opt
@@ -261,18 +275,11 @@ for i = 1, iterations do
         checkpoint.i = i
         checkpoint.epoch = epoch
         checkpoint.vocab = loader.vocab_mapping
-        torch.save(savename .. '.t7', checkpoint)
+        torch.save(model_file, checkpoint)
 
-        -- log out the options used for creating this network to a file in the save directory.
-        -- super useful when you're moving folders around so you don't lose track of things.
-        local f = io.open(savename .. '.opt.txt', 'w')
-        for key, val in pairs(opt) do
-          f:write(tostring(key) .. ": " .. tostring(val) .. "\n")
-        end
-        f:flush()
-        f:close()
 
-        local val_loss_log = io.open(savename ..'.val_loss.txt', 'a')
+
+        local val_loss_log = io.open(savedir ..'/val_loss.txt', 'a')
         val_loss_log:write(val_loss)
         val_loss_log:flush()
         val_loss_log:close()
