@@ -280,7 +280,7 @@ for i = 1, iterations do
 
 
         local val_loss_log = io.open(savedir ..'/val_loss.txt', 'a')
-        val_loss_log:write(val_loss)
+        val_loss_log:write(val_loss .. "\n")
         val_loss_log:flush()
         val_loss_log:close()
         -- os.execute("say 'Checkpoint saved.'")
