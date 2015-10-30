@@ -36,8 +36,8 @@ cmd:option('-seq_length',50,'number of timesteps to unroll for')
 cmd:option('-steps_per_output',1,'number of feedback steps to run per output')
 cmd:option('-num_functions',65,'number of function layers to create')
 
-cmd:option('-controller_nonlinearity','sigmoid','nonlinearity for output of controller. Sets the range of the weights.')
-cmd:option('-function_nonlinearity','tanh','nonlinearity for functions. sets range of function output')
+cmd:option('-controller_nonlinearity','tanh','nonlinearity for output of controller. Sets the range of the weights.')
+cmd:option('-function_nonlinearity','sigmoid','nonlinearity for functions. sets range of function output')
 -- cmd:option('-num_functions',65,'number of function layers to create')
 
 
@@ -178,10 +178,10 @@ function eval_split(split_index, max_batches)
     return loss
 end
 
-profiler = xlua.Profiler('on', true)
+-- profiler = xlua.Profiler('on', true)
 -- do fwd/bwd and return loss, grad_params
 function feval(x)
-    profiler:start('batch')
+    -- profiler:start('batch')
     if x ~= params then
         params:copy(x)
     end
@@ -227,7 +227,7 @@ function feval(x)
     model:backward(inputs, grad_outputs)
     grad_params:clamp(-opt.grad_clip, opt.grad_clip)
     -- grad_params:mul(-1)
-    profiler:lap('batch')
+    -- profiler:lap('batch')
     return loss, grad_params
 end
 
@@ -246,7 +246,7 @@ for i = 1, iterations do
     local _, loss = optim.rmsprop(feval, params, optim_state)
     local time = timer:time().real
 
-    profiler:printAll()
+    -- profiler:printAll()
 
     local train_loss = loss[1] -- the loss is inside a list, pop it
     train_losses[i] = train_loss
