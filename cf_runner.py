@@ -20,38 +20,14 @@ base_networks = {
 # Don't give it a save name - that gets generated for you
 jobs = [
         {
-            'controller_nonlinearity': 'tanh',
-            'function_nonlinearity': 'sigmoid',
+            'model': 'lstm',
         },
+
         {
             'controller_nonlinearity': 'tanh',
-            'function_nonlinearity': 'sigmoid',
-            'steps_per_output': 2,
-            'num_functions': 65,
-        },
-        {
-            'controller_nonlinearity': 'tanh',
-            'function_nonlinearity': 'sigmoid',
-            'steps_per_output': 2,
-            'num_functions': 33,
-        },
-        {
-            'controller_nonlinearity': 'tanh',
-            'function_nonlinearity': 'sigmoid',
-            'steps_per_output': 2,
-            'num_functions': 20,
-        },
-        {
-            'controller_nonlinearity': 'tanh',
-            'function_nonlinearity': 'sigmoid',
-            'steps_per_output': 2,
-            'num_functions': 10,
-        },
-        {
-            'controller_nonlinearity': 'tanh',
-            'function_nonlinearity': 'sigmoid',
+            'function_nonlinearity': 'tanh',
             'steps_per_output': 3,
-            'num_functions': 65,
+            'num_functions': 33,
         },
         {
             'controller_nonlinearity': 'tanh',
@@ -61,40 +37,93 @@ jobs = [
         },
         {
             'controller_nonlinearity': 'tanh',
-            'function_nonlinearity': 'sigmoid',
+            'function_nonlinearity': 'relu',
             'steps_per_output': 3,
-            'num_functions': 20,
-        },
-        {
-            'controller_nonlinearity': 'tanh',
-            'function_nonlinearity': 'sigmoid',
-            'steps_per_output': 3,
-            'num_functions': 10,
-        },
-        {
-            'controller_nonlinearity': 'tanh',
-            'function_nonlinearity': 'sigmoid',
-            'steps_per_output': 4,
-            'num_functions': 65,
-        },
-        {
-            'controller_nonlinearity': 'tanh',
-            'function_nonlinearity': 'sigmoid',
-            'steps_per_output': 4,
             'num_functions': 33,
         },
         {
             'controller_nonlinearity': 'tanh',
-            'function_nonlinearity': 'sigmoid',
-            'steps_per_output': 4,
-            'num_functions': 20,
+            'function_nonlinearity': 'prelu',
+            'steps_per_output': 3,
+            'num_functions': 33,
+        },
+
+        {
+            'controller_nonlinearity': 'sigmoid',
+            'function_nonlinearity': 'tanh',
+            'steps_per_output': 3,
+            'num_functions': 33,
         },
         {
-            'controller_nonlinearity': 'tanh',
+            'controller_nonlinearity': 'sigmoid',
             'function_nonlinearity': 'sigmoid',
-            'steps_per_output': 4,
-            'num_functions': 10,
+            'steps_per_output': 3,
+            'num_functions': 33,
         },
+        {
+            'controller_nonlinearity': 'sigmoid',
+            'function_nonlinearity': 'relu',
+            'steps_per_output': 3,
+            'num_functions': 33,
+        },
+        {
+            'controller_nonlinearity': 'sigmoid',
+            'function_nonlinearity': 'prelu',
+            'steps_per_output': 3,
+            'num_functions': 33,
+        },
+
+        {
+            'controller_nonlinearity': 'relu',
+            'function_nonlinearity': 'tanh',
+            'steps_per_output': 3,
+            'num_functions': 33,
+        },
+        {
+            'controller_nonlinearity': 'relu',
+            'function_nonlinearity': 'sigmoid',
+            'steps_per_output': 3,
+            'num_functions': 33,
+        },
+        {
+            'controller_nonlinearity': 'relu',
+            'function_nonlinearity': 'relu',
+            'steps_per_output': 3,
+            'num_functions': 33,
+        },
+        {
+            'controller_nonlinearity': 'relu',
+            'function_nonlinearity': 'prelu',
+            'steps_per_output': 3,
+            'num_functions': 33,
+        },
+
+        {
+            'controller_nonlinearity': 'prelu',
+            'function_nonlinearity': 'tanh',
+            'steps_per_output': 3,
+            'num_functions': 33,
+        },
+        {
+            'controller_nonlinearity': 'prelu',
+            'function_nonlinearity': 'sigmoid',
+            'steps_per_output': 3,
+            'num_functions': 33,
+        },
+        {
+            'controller_nonlinearity': 'prelu',
+            'function_nonlinearity': 'relu',
+            'steps_per_output': 3,
+            'num_functions': 33,
+        },
+        {
+            'controller_nonlinearity': 'prelu',
+            'function_nonlinearity': 'prelu',
+            'steps_per_output': 3,
+            'num_functions': 33,
+        },
+
+
     ]
 
 if dry_run:
@@ -126,7 +155,7 @@ for job in jobs:
             flagstring = flagstring + " -" + flag + " " + str(job[flag])
     flagstring = flagstring + " -name " + jobname
 
-    jobcommand = "th cf_main.lua" + flagstring
+    jobcommand = "th main.lua" + flagstring
 
     print(jobcommand)
     if local and not dry_run:

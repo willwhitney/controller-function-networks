@@ -42,6 +42,8 @@ function Controller:__init(
         self.decoder:add(nn.Tanh())
     elseif nonlinearity == 'relu' then
         self.decoder:add(nn.ReLU())
+    elseif nonlinearity == 'prelu' then
+        self.decoder:add(nn.PReLU())
     elseif nonlinearity == 'none' then
 
     else

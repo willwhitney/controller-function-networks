@@ -36,6 +36,8 @@ function CFNetwork:__init(options)
             layer:add(nn.Tanh())
         elseif options.function_nonlinearity == 'relu' then
             layer:add(nn.ReLU())
+        elseif options.function_nonlinearity == 'prelu' then
+            layer:add(nn.PReLU())
         elseif options.function_nonlinearity == 'none' then
 
         else
