@@ -19,109 +19,109 @@ base_networks = {
 
 # Don't give it a save name - that gets generated for you
 jobs = [
+        # {
+        #     'model': 'lstm',
+        # },
+        #
+        # {
+        #     'controller_nonlinearity': 'tanh',
+        #     'function_nonlinearity': 'tanh',
+        #     'steps_per_output': 3,
+        #     'num_functions': 33,
+        # },
+        # {
+        #     'controller_nonlinearity': 'tanh',
+        #     'function_nonlinearity': 'sigmoid',
+        #     'steps_per_output': 3,
+        #     'num_functions': 33,
+        # },
+        # {
+        #     'controller_nonlinearity': 'tanh',
+        #     'function_nonlinearity': 'relu',
+        #     'steps_per_output': 3,
+        #     'num_functions': 33,
+        # },
+        # {
+        #     'controller_nonlinearity': 'tanh',
+        #     'function_nonlinearity': 'prelu',
+        #     'steps_per_output': 3,
+        #     'num_functions': 33,
+        # },
+        #
+        # {
+        #     'controller_nonlinearity': 'sigmoid',
+        #     'function_nonlinearity': 'tanh',
+        #     'steps_per_output': 3,
+        #     'num_functions': 33,
+        # },
+        # {
+        #     'controller_nonlinearity': 'sigmoid',
+        #     'function_nonlinearity': 'sigmoid',
+        #     'steps_per_output': 3,
+        #     'num_functions': 33,
+        # },
+        # {
+        #     'controller_nonlinearity': 'sigmoid',
+        #     'function_nonlinearity': 'relu',
+        #     'steps_per_output': 3,
+        #     'num_functions': 33,
+        # },
+        # {
+        #     'controller_nonlinearity': 'sigmoid',
+        #     'function_nonlinearity': 'prelu',
+        #     'steps_per_output': 3,
+        #     'num_functions': 33,
+        # },
+        #
+        # {
+        #     'controller_nonlinearity': 'relu',
+        #     'function_nonlinearity': 'tanh',
+        #     'steps_per_output': 3,
+        #     'num_functions': 33,
+        # },
+        # {
+        #     'controller_nonlinearity': 'relu',
+        #     'function_nonlinearity': 'sigmoid',
+        #     'steps_per_output': 3,
+        #     'num_functions': 33,
+        # },
+        # {
+        #     'controller_nonlinearity': 'relu',
+        #     'function_nonlinearity': 'relu',
+        #     'steps_per_output': 3,
+        #     'num_functions': 33,
+        # },
         {
-            'model': 'lstm',
-        },
-
-        {
-            'controller_nonlinearity': 'tanh',
-            'function_nonlinearity': 'tanh',
-            'steps_per_output': 3,
-            'num_functions': 33,
-        },
-        {
-            'controller_nonlinearity': 'tanh',
-            'function_nonlinearity': 'sigmoid',
-            'steps_per_output': 3,
-            'num_functions': 33,
-        },
-        {
-            'controller_nonlinearity': 'tanh',
-            'function_nonlinearity': 'relu',
-            'steps_per_output': 3,
-            'num_functions': 33,
-        },
-        {
-            'controller_nonlinearity': 'tanh',
+            'controller_nonlinearity': 'relu',
             'function_nonlinearity': 'prelu',
             'steps_per_output': 3,
             'num_functions': 33,
         },
 
-        {
-            'controller_nonlinearity': 'sigmoid',
-            'function_nonlinearity': 'tanh',
-            'steps_per_output': 3,
-            'num_functions': 33,
-        },
-        {
-            'controller_nonlinearity': 'sigmoid',
-            'function_nonlinearity': 'sigmoid',
-            'steps_per_output': 3,
-            'num_functions': 33,
-        },
-        {
-            'controller_nonlinearity': 'sigmoid',
-            'function_nonlinearity': 'relu',
-            'steps_per_output': 3,
-            'num_functions': 33,
-        },
-        {
-            'controller_nonlinearity': 'sigmoid',
-            'function_nonlinearity': 'prelu',
-            'steps_per_output': 3,
-            'num_functions': 33,
-        },
-
-        {
-            'controller_nonlinearity': 'relu',
-            'function_nonlinearity': 'tanh',
-            'steps_per_output': 3,
-            'num_functions': 33,
-        },
-        {
-            'controller_nonlinearity': 'relu',
-            'function_nonlinearity': 'sigmoid',
-            'steps_per_output': 3,
-            'num_functions': 33,
-        },
-        {
-            'controller_nonlinearity': 'relu',
-            'function_nonlinearity': 'relu',
-            'steps_per_output': 3,
-            'num_functions': 33,
-        },
-        {
-            'controller_nonlinearity': 'relu',
-            'function_nonlinearity': 'prelu',
-            'steps_per_output': 3,
-            'num_functions': 33,
-        },
-
-        {
-            'controller_nonlinearity': 'prelu',
-            'function_nonlinearity': 'tanh',
-            'steps_per_output': 3,
-            'num_functions': 33,
-        },
-        {
-            'controller_nonlinearity': 'prelu',
-            'function_nonlinearity': 'sigmoid',
-            'steps_per_output': 3,
-            'num_functions': 33,
-        },
-        {
-            'controller_nonlinearity': 'prelu',
-            'function_nonlinearity': 'relu',
-            'steps_per_output': 3,
-            'num_functions': 33,
-        },
-        {
-            'controller_nonlinearity': 'prelu',
-            'function_nonlinearity': 'prelu',
-            'steps_per_output': 3,
-            'num_functions': 33,
-        },
+        # {
+        #     'controller_nonlinearity': 'prelu',
+        #     'function_nonlinearity': 'tanh',
+        #     'steps_per_output': 3,
+        #     'num_functions': 33,
+        # },
+        # {
+        #     'controller_nonlinearity': 'prelu',
+        #     'function_nonlinearity': 'sigmoid',
+        #     'steps_per_output': 3,
+        #     'num_functions': 33,
+        # },
+        # {
+        #     'controller_nonlinearity': 'prelu',
+        #     'function_nonlinearity': 'relu',
+        #     'steps_per_output': 3,
+        #     'num_functions': 33,
+        # },
+        # {
+        #     'controller_nonlinearity': 'prelu',
+        #     'function_nonlinearity': 'prelu',
+        #     'steps_per_output': 3,
+        #     'num_functions': 33,
+        # },
 
 
     ]
