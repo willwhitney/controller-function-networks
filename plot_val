@@ -1,0 +1,1 @@
+ls -tr networks | xargs -I XXX echo networks/XXX/val_loss.txt | graphlog
