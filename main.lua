@@ -67,6 +67,7 @@ torch.manualSeed(opt.seed)
 
 local savedir = string.format('%s/%s', opt.checkpoint_dir, opt.name)
 os.execute('mkdir -p '..savedir)
+os.execute(string.format('rm %s/*', savedir))
 
 -- log out the options used for creating this network to a file in the save directory.
 -- super useful when you're moving folders around so you don't lose track of things.
