@@ -312,9 +312,9 @@ for i = 1, iterations do
     if loss0 == nil then
         loss0 = loss[1]
     end
-    if loss[1] > loss0 * 8 then
-        print('loss is exploding, aborting.')
-        print("loss0:", loss0, "loss[1]:", loss[1])
-        break -- halt
-    end
+    -- if loss[1] > loss0 * 8 then
+    --     print('loss is exploding, aborting.')
+    --     print("loss0:", loss0, "loss[1]:", loss[1])
+    --     break -- halt
+    -- end
 end
