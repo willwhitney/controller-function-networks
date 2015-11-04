@@ -7,7 +7,7 @@ CFNetwork, parent = torch.class('nn.CFNetwork', 'nn.Module')
 
 function CFNetwork:__init(options)
     self.controller = nn.Controller(
-            options.input_dimension, -- needs to look at the whole input
+            options.encoded_dimension, -- needs to look at the whole input
             options.num_functions, -- outputs a weighting over all the functions
             options.controller_units_per_layer,
             options.controller_num_layers,
@@ -16,20 +16,23 @@ function CFNetwork:__init(options)
 
     self.steps_per_output = options.steps_per_output or 1
 
+    self.encoder = nn.Linear(options.input_dimension, options.encoded_dimension)
+    self.decoder = nn.Linear(options.encoded_dimension, options.input_dimension)
+
     self.functions = {}
     for i = 1, options.num_functions do
 
-        -- local const = torch.zeros(opt.batch_size, options.input_dimension)
+        -- local const = torch.zeros(opt.batch_size, options.encoded_dimension)
         -- const[{{}, {i}}] = 1
         -- local layer = nn.Constant(const)
 
         -- local layer = nn.Sequential()
-        -- layer:add(nn.Linear(options.input_dimension, options.input_dimension))
+        -- layer:add(nn.Linear(options.encoded_dimension, options.encoded_dimension))
         -- layer:add(nn.Sigmoid())
         -- layer:add(nn.PReLU())
 
         local layer = nn.Sequential()
-        layer:add(nn.Linear(options.input_dimension, options.input_dimension))
+        layer:add(nn.Linear(options.encoded_dimension, options.encoded_dimension))
         if options.function_nonlinearity == 'sigmoid' then
             layer:add(nn.Sigmoid())
         elseif options.function_nonlinearity == 'tanh' then
@@ -44,7 +47,7 @@ function CFNetwork:__init(options)
             error("Must specify a nonlinearity for the functions.")
         end
 
-        -- local layer = KarpathyLSTM.lstm(options.input_dimension, options.input_dimension, 1, dropout)
+        -- local layer = KarpathyLSTM.lstm(options.encoded_dimension, options.encoded_dimension, 1, dropout)
 
         table.insert(self.functions, layer)
     end
@@ -58,17 +61,36 @@ function CFNetwork:__init(options)
 end
 
 function CFNetwork:forward(inputs)
+    -- print(inputs)
     self:reset()
-    local outputs = {}
-    for i = 1, #inputs do
-        outputs[i] = self:step(inputs[i]):clone()
+    if type(inputs) == 'table' then
+        -- the input should be a table of sequential inputs such that
+        -- inputs[2] is chronologically after inputs[1]
+        local outputs = {}
+        for i = 1, #inputs do
+            outputs[i] = self:step(inputs[i]):clone()
+        end
+        self.output = outputs
+    else
+        -- if given a tensor, the input should be indexed as
+        -- inputs[batch_index][sequence_timestep][one_hot_index]
+        local outputs = {}
+        for i = 1, inputs:size(2) do
+            local current_input = inputs[{{}, {i}}]:reshape(inputs:size(1), inputs:size(3))
+            outputs[i] = self:step(current_input):clone()
+        end
+        self.output = outputs
     end
-    self.output = outputs
+    -- print(self.output)
     return self.output
 end
 
+function CFNetwork:updateOutput(inputs)
+    return self:forward(inputs)
+end
+
 function CFNetwork:step(input)
-    local next_input = input
+    local next_input = self.encoder:forward(input)
     local step_trace = {}
     for substep = 1, self.steps_per_output do
         local controller_output = self.controller:step(next_input)
@@ -90,17 +112,21 @@ function CFNetwork:step(input)
 
     table.insert(self.trace, step_trace)
 
-    self.output = next_input:clone()
+    self.output = self.decoder:forward(next_input):clone()
     return self.output
 end
 
 function CFNetwork:backstep(input, gradOutput)
     local timestep = #self.trace
     local step_trace = self.trace[timestep]
-    if step_trace[1].input ~= input then
+
+    local encoded_input = self.encoder:forward(input)
+    if step_trace[1].input:sum() ~= encoded_input:sum() then
         error("CFNetwork:backstep has been called in the wrong order.")
     end
-    local current_gradInput = gradOutput
+
+    self.decoder:forward(step_trace[#step_trace].output)
+    local current_gradInput = self.decoder:backward(step_trace[#step_trace].output, gradOutput)
 
     for substep = self.steps_per_output, 1, -1 do
         local substep_trace = step_trace[substep]
@@ -128,7 +154,7 @@ function CFNetwork:backstep(input, gradOutput)
             current_gradInput = current_gradInput + self.functions[i]:backward(substep_input, grad_function_outputs[i])
         end
     end
-    self.gradInput = current_gradInput
+    self.gradInput = self.encoder:backward(input, current_gradInput)
 
     -- pop this timestep from our stack
     self.trace[timestep] = nil
@@ -136,8 +162,15 @@ function CFNetwork:backstep(input, gradOutput)
 end
 
 function CFNetwork:backward(inputs, grad_outputs)
-    for timestep = #inputs, 1, -1 do
-        self:backstep(inputs[timestep], grad_outputs[timestep])
+    if type(inputs) == 'table' then
+        for timestep = #inputs, 1, -1 do
+            self:backstep(inputs[timestep], grad_outputs[timestep])
+        end
+    else
+        for timestep = #grad_outputs, 1, -1 do
+            local input = inputs[{{}, {timestep}}]:reshape(inputs:size(1), inputs:size(3))
+            self:backstep(input, grad_outputs[timestep])
+        end
     end
 end
 
@@ -168,6 +201,16 @@ function CFNetwork:parameters()
         end
     end
     local mw,mgw = self.controller:parameters()
+    if mw then
+        tinsert(w,mw)
+        tinsert(gw,mgw)
+    end
+    local mw,mgw = self.encoder:parameters()
+    if mw then
+        tinsert(w,mw)
+        tinsert(gw,mgw)
+    end
+    local mw,mgw = self.decoder:parameters()
     if mw then
         tinsert(w,mw)
         tinsert(gw,mgw)
@@ -236,6 +279,8 @@ function CFNetwork:training()
         self.functions[i]:training()
     end
     self.mixtable:training()
+    self.encoder:training()
+    self.decoder:training()
     self.controller:training()
 end
 
@@ -244,6 +289,8 @@ function CFNetwork:evaluate()
         self.functions[i]:evaluate()
     end
     self.mixtable:evaluate()
+    self.encoder:evaluate()
+    self.decoder:evaluate()
     self.controller:evaluate()
 end
 
@@ -252,6 +299,8 @@ function CFNetwork:cuda()
         self.functions[i]:cuda()
     end
     self.mixtable:cuda()
+    self.encoder:cuda()
+    self.decoder:cuda()
     self.controller:cuda()
 end
 
@@ -260,6 +309,8 @@ function CFNetwork:float()
         self.functions[i]:float()
     end
     self.mixtable:float()
+    self.encoder:float()
+    self.decoder:float()
     self.controller:float()
 end
 
@@ -268,5 +319,7 @@ function CFNetwork:double()
         self.functions[i]:double()
     end
     self.mixtable:double()
+    self.encoder:double()
+    self.decoder:double()
     self.controller:double()
 end

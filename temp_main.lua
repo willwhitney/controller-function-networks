@@ -7,7 +7,7 @@ require 'vis'
 
 require 'utils'
 require 'OneHot'
-local WikiBatchLoader = require 'WikiBatchLoader'
+local CharSplitLMMinibatchLoader = require 'CharSplitLMMinibatchLoader'
 
 
 cmd = torch.CmdLine()
@@ -15,25 +15,20 @@ cmd:text()
 cmd:text('Train a character-level language model')
 cmd:text()
 cmd:text('Options')
-
 -- data
-cmd:option('-data_file','','data file. should be a tensor. if none specified, will use wikipedia of correct vocab size.')
-cmd:option('-vocab_size',10000,'what vocab size to use')
+cmd:option('-data_dir','data/tinyshakespeare','data directory. Should contain the file input.txt with input data')
 
 -- model params
 cmd:option('-rnn_size', 128, 'size of LSTM internal state')
-cmd:option('-layer_size', 128, 'size of the layers')
 cmd:option('-num_layers', 2, 'number of layers in the LSTM')
 cmd:option('-model', 'cf', 'cf or lstm')
-
-
 -- optimization
 cmd:option('-learning_rate',2e-3,'learning rate')
 cmd:option('-learning_rate_decay',0.97,'learning rate decay')
 cmd:option('-learning_rate_decay_after',5,'in number of epochs, when to start decaying the learning rate')
 cmd:option('-decay_rate',0.95,'decay rate for rmsprop')
 cmd:option('-dropout',0,'dropout for regularization, used after each RNN hidden layer. 0 = no dropout')
--- cmd:option('-seq_length',50,'number of timesteps to unroll for')
+cmd:option('-seq_length',50,'number of timesteps to unroll for')
 
 cmd:option('-steps_per_output',1,'number of feedback steps to run per output')
 cmd:option('-num_functions',65,'number of function layers to create')
@@ -48,7 +43,7 @@ cmd:option('-batch_size',30,'number of sequences to train on in parallel')
 
 cmd:option('-max_epochs',20,'number of full passes through the training data')
 cmd:option('-grad_clip',3,'clip gradients at this value')
-cmd:option('-train_frac',0.9,'fraction of data that goes into train set')
+cmd:option('-train_frac',0.95,'fraction of data that goes into train set')
 cmd:option('-val_frac',0.05,'fraction of data that goes into validation set')
             -- test_frac will be computed as (1 - train_frac - val_frac)
 cmd:option('-import', '', 'initialize network parameters from checkpoint at this path')
@@ -69,11 +64,6 @@ cmd:text()
 -- parse input params
 opt = cmd:parse(arg)
 torch.manualSeed(opt.seed)
-
-local vocab_size = opt.vocab_size
-if opt.data_file == '' then
-    opt.data_file = "data/wiki/dataset_"..vocab_size..".t7"
-end
 
 local savedir = string.format('%s/%s', opt.checkpoint_dir, opt.name)
 os.execute('mkdir -p '..savedir)
@@ -97,74 +87,97 @@ local test_frac = math.max(0, 1 - (opt.train_frac + opt.val_frac))
 local split_sizes = {opt.train_frac, opt.val_frac, test_frac}
 
 -- create the data loader class
-local loader = WikiBatchLoader.create(opt.data_file, split_sizes)
-opt.seq_length = loader.seq_length - 1
--- local vocab_size = loader.vocab_size  -- the number of distinct characters
-
-
--- local vocab = loader.vocab_mapping
--- print('vocab size: ' .. vocab_size)
+local loader = CharSplitLMMinibatchLoader.create(opt.data_dir, opt.batch_size, opt.seq_length, split_sizes)
+local vocab_size = loader.vocab_size  -- the number of distinct characters
+local vocab = loader.vocab_mapping
+print('vocab size: ' .. vocab_size)
 
 local params, grad_params
-if opt.import ~= '' then
-    checkpoint = torch.load(opt.import)
-    model = checkpoint.model
-    params, grad_params = model:getParameters()
+-- if opt.import ~= '' then
+--     checkpoint = torch.load(opt.import)
+--     model = checkpoint.model
+--     params, grad_params = model:getParameters()
+--
+--     local vocab_compatible = true
+--     for c,i in pairs(checkpoint.vocab) do
+--         if not vocab[c] == i then
+--             vocab_compatible = false
+--         end
+--     end
+--     assert(vocab_compatible, 'error, the character vocabulary for this dataset and the one in the saved checkpoint are not the same. This is trouble.')
+--     -- overwrite model settings based on checkpoint to ensure compatibility
+--     print('overwriting rnn_size=' .. checkpoint.opt.rnn_size .. ', num_layers=' .. checkpoint.opt.num_layers .. checkpoint.opt.steps_per_output .. ', steps_per_output=' .. checkpoint.opt.num_functions .. ', num_functions=' .. ' based on the checkpoint.')
+--     opt.rnn_size = checkpoint.opt.rnn_size
+--     opt.num_layers = checkpoint.opt.num_layers
+--     opt.steps_per_output = checkpoint.opt.steps_per_output
+--     opt.num_functions = checkpoint.opt.num_functions
+--
+-- else
+--     if opt.model == 'cf' then
+--         require 'CFNetwork_multistep'
+--         model = nn.CFNetwork({
+--                 input_dimension = vocab_size,
+--                 num_functions = opt.num_functions,
+--                 controller_units_per_layer = opt.rnn_size,
+--                 controller_num_layers = opt.num_layers,
+--                 controller_dropout = opt.dropout,
+--                 steps_per_output = opt.steps_per_output,
+--                 controller_nonlinearity = opt.controller_nonlinearity,
+--                 function_nonlinearity = opt.function_nonlinearity,
+--             })
+--     elseif opt.model == 'lstm' then
+--         require 'SteppableLSTM'
+--         model = nn.SteppableLSTM(vocab_size, vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
+--     else
+--         error("Model type not valid.")
+--     end
+--
+--     params, grad_params = model:getParameters()
+--     params:uniform(-0.08, 0.08) -- small numbers uniform
+-- end
 
-    -- local vocab_compatible = true
-    -- for c,i in pairs(checkpoint.vocab) do
-    --     if not vocab[c] == i then
-    --         vocab_compatible = false
-    --     end
-    -- end
-    -- assert(vocab_compatible, 'error, the character vocabulary for this dataset and the one in the saved checkpoint are not the same. This is trouble.')
-    -- overwrite model settings based on checkpoint to ensure compatibility
-    print('overwriting rnn_size=' .. checkpoint.opt.rnn_size .. ', num_layers=' .. checkpoint.opt.num_layers .. checkpoint.opt.steps_per_output .. ', steps_per_output=' .. checkpoint.opt.num_functions .. ', num_functions=' .. ' based on the checkpoint.')
-    opt.rnn_size = checkpoint.opt.rnn_size
-    opt.num_layers = checkpoint.opt.num_layers
-    opt.steps_per_output = checkpoint.opt.steps_per_output
-    opt.num_functions = checkpoint.opt.num_functions
+require 'CFNetwork_multistep'
+cf = nn.CFNetwork({
+        input_dimension = vocab_size,
+        encoded_dimension = 65,
+        num_functions = opt.num_functions,
+        controller_units_per_layer = opt.rnn_size,
+        controller_num_layers = opt.num_layers,
+        controller_dropout = opt.dropout,
+        steps_per_output = opt.steps_per_output,
+        controller_nonlinearity = opt.controller_nonlinearity,
+        function_nonlinearity = opt.function_nonlinearity,
+    })
 
-else
-    if opt.model == 'cf' then
-        require 'CFNetwork_multistep'
-        one_hot = OneHot(vocab_size)
-        recurrent = nn.CFNetwork({
-                input_dimension = vocab_size,
-                encoded_dimension = opt.layer_size,
-                num_functions = opt.num_functions,
-                controller_units_per_layer = opt.rnn_size,
-                controller_num_layers = opt.num_layers,
-                controller_dropout = opt.dropout,
-                steps_per_output = opt.steps_per_output,
-                controller_nonlinearity = opt.controller_nonlinearity,
-                function_nonlinearity = opt.function_nonlinearity,
-            })
-        model = nn.Sequential()
+-- require 'SteppableLSTM'
+-- cf = nn.SteppableLSTM(vocab_size, vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
 
-        model:add(one_hot)
-        model:add(recurrent)
-    elseif opt.model == 'lstm' then
-        require 'SteppableLSTM'
-        one_hot = OneHot(vocab_size)
-        recurrent = nn.SteppableLSTM(vocab_size, vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
-        model = nn.Sequential()
-
-        model:add(one_hot)
-        model:add(recurrent)
-    else
-        error("Model type not valid.")
-    end
-
-    params, grad_params = model:getParameters()
-    params:uniform(-0.08, 0.08) -- small numbers uniform
-end
-
+-- criterion = nn.Identity()
 criterion = nn.CrossEntropyCriterion()
+one_hot = OneHot(vocab_size)
+
+-- model = nn.Sequential()
+local model = nn.Sequential()
+
+model:add(one_hot)
+-- model:add(nn.Linear(vocab_size, 33))
+model:add(cf)
+-- main_model:add(nn.JoinTable(2))
+
+-- local parallel = nn.ParallelTable()
+-- parallel:add(main_model)
+-- parallel:add(nn.Identity())
+
+-- model:add(parallel)
+-- model:add(criterion)
+
+params, grad_params = model:getParameters()
+params:uniform(-0.08, 0.08) -- small numbers uniform
 
 if opt.gpuid >= 0 then
     model:cuda()
-    criterion:cuda()
+    -- criterion:cuda()
+    -- one_hot:cuda()
 end
 
 -- if model.functions[1].modules[1].weight:type() == "torch.CudaTensor" then
@@ -181,7 +194,7 @@ function eval_split(split_index, max_batches)
 
     loader:reset_batch_pointer(split_index) -- move batch iteration pointer for this split to front
     local loss = 0
-    recurrent:reset()
+    cf:reset()
     model:evaluate()
 
     for i = 1,n do -- iterate over batches in the split
@@ -193,9 +206,13 @@ function eval_split(split_index, max_batches)
             y = y:float():cuda()
         end
         -- forward pass
-        predictions = model:forward(x)
-        for t = 1, opt.seq_length do
-            loss = loss + criterion:forward(predictions[t], y[{{}, t}])
+        for t=1,opt.seq_length do
+            local input = one_hot:forward(x[{{}, t}])
+
+            local prediction = model:step(input)
+            -- print("Input:", vis.simplestr(input[1]))
+            -- print("Prediction:", vis.simplestr(prediction[1]))
+            loss = loss + criterion:forward(prediction, y[{{}, t}])
         end
         print(i .. '/' .. n .. '...')
     end
@@ -212,7 +229,7 @@ function feval(x)
         params:copy(x)
     end
     grad_params:zero()
-    recurrent:reset()
+    cf:reset()
 
     ------------------ get minibatch -------------------
     local x, y = loader:next_batch(1)
@@ -221,7 +238,6 @@ function feval(x)
         x = x:float():cuda()
         y = y:float():cuda()
     end
-    -- print(x)
 
     ------------------- forward pass -------------------
     local predictions = {}           -- softmax outputs
@@ -230,11 +246,37 @@ function feval(x)
     local loss = 0
 
     model:training() -- make sure we are in correct mode (this is cheap, sets flag)
+
     predictions = model:forward(x)
     for t = 1, opt.seq_length do
         loss = loss + criterion:forward(predictions[t], y[{{}, t}])
         grad_outputs[t] = criterion:backward(predictions[t], y[{{}, t}]):clone()
     end
+
+    -- loss = model:forward{x, y}
+    -- print(loss)
+
+    -- print(main_model)
+    -- loss = main_model:forward(x)
+
+    -- for t=1,opt.seq_length do
+    --     inputs[t] = one_hot:forward(x[{{}, t}])
+    --
+    --     predictions[t] = model:step(inputs[t]) --:clone()
+    --     -- if t == 4 and opt.model == 'cf' then
+    --     --     vis.hist(model.controller.output[1])
+    --     -- end
+    --
+    --     loss = loss + criterion:forward(predictions[t], y[{{}, t}])
+    --
+    --     grad_outputs[t] = criterion:backward(predictions[t], y[{{}, t}]):clone()
+    --
+    --
+    --     -- print("pred:", predictions[t][1])
+    --     -- print("truth:", y[{{}, t}][1])
+    --
+    --     -- print(grad_outputs[t][1])
+    -- end
     loss = loss / opt.seq_length
     ------------------ backward pass -------------------
 
@@ -294,7 +336,7 @@ for i = 1, iterations do
         checkpoint.val_losses = val_losses
         checkpoint.i = i
         checkpoint.epoch = epoch
-        -- checkpoint.vocab = loader.vocab_mapping
+        checkpoint.vocab = loader.vocab_mapping
         torch.save(model_file, checkpoint)
 
 

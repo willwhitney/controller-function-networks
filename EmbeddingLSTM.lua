@@ -4,10 +4,10 @@ require 'nngraph'
 LSTM = require 'LSTM'
 KarpathyLSTM = require 'KarpathyLSTM'
 
-SteppableLSTM, parent = torch.class('nn.SteppableLSTM', 'nn.Module')
+EmbeddingLSTM, parent = torch.class('nn.EmbeddingLSTM', 'nn.Module')
 
 
-function SteppableLSTM:__init(
+function EmbeddingLSTM:__init(
             input_dimension,
             output_dimension,
             num_units_per_layer,
@@ -19,14 +19,16 @@ function SteppableLSTM:__init(
     self.num_units_per_layer = num_units_per_layer
     print("Units per layer: ", self.num_units_per_layer)
 
+    self.encoder = nn.Linear(self.input_dimension, self.num_units_per_layer)
+    self.decoder = nn.Linear(self.num_units_per_layer, self.output_dimension)
     self.network = {}
 
     -- create the input layer with different input size
-    table.insert(self.network,
-        KarpathyLSTM.lstm(self.input_dimension, self.num_units_per_layer, 1, dropout))
+    -- table.insert(self.network,
+    --     KarpathyLSTM.lstm(self.input_dimension, self.num_units_per_layer, 1, dropout))
 
     -- and the other n_units -> n_units layers
-    for i = 2, num_layers do
+    for i = 1, num_layers do
         table.insert(self.network,
             KarpathyLSTM.lstm(self.num_units_per_layer, self.num_units_per_layer, 1, dropout))
     end
@@ -41,7 +43,7 @@ function SteppableLSTM:__init(
     self:reset()
 end
 
-function SteppableLSTM:reset(batch_size)
+function EmbeddingLSTM:reset(batch_size)
     batch_size = batch_size or opt.batch_size
     self.trace = {}
     self.backtrace = {}
@@ -68,7 +70,7 @@ end
 
 -- take one timestep with this input
 -- if using the model this way, make sure to call reset() between sequences
-function SteppableLSTM:step(input)
+function EmbeddingLSTM:step(input)
     local current_input = input:clone()
     local step_trace = {}
     local output
@@ -114,7 +116,7 @@ function SteppableLSTM:step(input)
     return self.output
 end
 
-function SteppableLSTM:forward(inputs)
+function EmbeddingLSTM:forward(inputs)
     self:reset()
     if type(inputs) == 'table' then
         -- the input should be a table of sequential inputs such that
@@ -137,13 +139,13 @@ function SteppableLSTM:forward(inputs)
     return self.output
 end
 
-function SteppableLSTM:updateOutput(inputs)
+function EmbeddingLSTM:updateOutput(inputs)
     return self:forward(inputs)
 end
 
 
 -- backpropagate on a table of inputs and a table of grad_outputs
-function SteppableLSTM:backward(inputs, grad_outputs)
+function EmbeddingLSTM:backward(inputs, grad_outputs)
     local current_gradOutput
 
     -- make a set of zero gradients for the timestep after the last one
@@ -160,7 +162,7 @@ end
 
 -- this should only be used after the system has been run to completion
 -- at that point, it should be called in the reverse order of computation
-function SteppableLSTM:backstep(input, gradOutput)
+function EmbeddingLSTM:backstep(input, gradOutput)
     local timestep = #self.trace
 
     -- if this is the last timestep, and it hasn't been done already,
@@ -232,7 +234,7 @@ function SteppableLSTM:backstep(input, gradOutput)
     return current_gradOutput
 end
 
-function SteppableLSTM:buildFinalGradient()
+function EmbeddingLSTM:buildFinalGradient()
     -- build a set of dummy (zero) gradients for a timestep that didn't happen
     local last_gradient = {}
     for i = 1, #self.network do
@@ -254,14 +256,14 @@ function SteppableLSTM:buildFinalGradient()
     return last_gradient
 end
 
-function SteppableLSTM:updateParameters(learningRate)
+function EmbeddingLSTM:updateParameters(learningRate)
     for i = 1, #self.network do
         self.network[i]:updateParameters(learningRate)
     end
     self.decoder:updateParameters(learningRate)
 end
 
-function SteppableLSTM:zeroGradParameters()
+function EmbeddingLSTM:zeroGradParameters()
     for i = 1, #self.network do
         self.network[i]:zeroGradParameters()
     end
@@ -269,7 +271,7 @@ function SteppableLSTM:zeroGradParameters()
 end
 
 -- taken from nn.Container
-function SteppableLSTM:parameters()
+function EmbeddingLSTM:parameters()
     local function tinsert(to, from)
         if type(from) == 'table' then
             for i=1,#from do
@@ -296,28 +298,28 @@ function SteppableLSTM:parameters()
     return w,gw
 end
 
-function SteppableLSTM:training()
+function EmbeddingLSTM:training()
     for i = 1, #self.network do
         self.network[i]:training()
     end
     self.decoder:training()
 end
 
-function SteppableLSTM:evaluate()
+function EmbeddingLSTM:evaluate()
     for i = 1, #self.network do
         self.network[i]:evaluate()
     end
     self.decoder:evaluate()
 end
 
-function SteppableLSTM:cuda()
+function EmbeddingLSTM:cuda()
     for i = 1, #self.network do
         self.network[i]:cuda()
     end
     self.decoder:cuda()
 end
 
-function SteppableLSTM:float()
+function EmbeddingLSTM:float()
     for i = 1, #self.network do
         self.network[i]:float()
     end

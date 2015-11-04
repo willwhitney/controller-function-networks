@@ -12,15 +12,18 @@ print("Using seed " .. seed)
 
 opt = {
     input_dimension = 10,
+    encoded_dimension = 5,
     batch_size = 5,
     seq_length = 2,
     num_functions = 4,
-    controller_units_per_layer = 5,
+    rnn_size = 5,
     controller_num_layers = 2,
     controller_dropout = 0,
     steps_per_output = 5,
+    controller_nonlinearity = 'sigmoid',
+    function_nonlinearity = 'sigmoid',
 }
-mode = 'controller'
+mode = 'multistep'
 
 
 function finiteDiff(model, input, target, p, gp)
@@ -124,13 +127,17 @@ end
 
 
 if mode == 'step' then
-    require 'CFNetwork'
+    require 'CFNetwork_multistep'
     model = nn.CFNetwork({
         input_dimension = opt.input_dimension,
         num_functions = opt.num_functions,
-        controller_units_per_layer = opt.controller_units_per_layer,
+        controller_units_per_layer = opt.rnn_size,
         controller_num_layers = opt.controller_num_layers,
         controller_dropout = opt.controller_dropout,
+        steps_per_output = opt.steps_per_output,
+        controller_nonlinearity = opt.controller_nonlinearity,
+        function_nonlinearity = opt.function_nonlinearity,
+        encoded_dimension = opt.encoded_dimension,
     })
     p, gp = model:getParameters()
     p_backup = p:clone()
@@ -162,13 +169,17 @@ if mode == 'step' then
     -- fd_grad = finiteDiffStep(model, inputs, targets, p, gp)
 
 elseif mode == 'functions' then
-    require 'CFNetwork'
+    require 'CFNetwork_multistep'
     model = nn.CFNetwork({
         input_dimension = opt.input_dimension,
         num_functions = opt.num_functions,
-        controller_units_per_layer = opt.controller_units_per_layer,
+        controller_units_per_layer = opt.rnn_size,
         controller_num_layers = opt.controller_num_layers,
         controller_dropout = opt.controller_dropout,
+        steps_per_output = opt.steps_per_output,
+        controller_nonlinearity = opt.controller_nonlinearity,
+        function_nonlinearity = opt.function_nonlinearity,
+        encoded_dimension = opt.encoded_dimension,
     })
     p, gp = model:getFunctionParameters()
     p_backup = p:clone()
@@ -200,13 +211,17 @@ elseif mode == 'functions' then
 
 
 elseif mode == 'controller' then
-    require 'CFNetwork'
+    require 'CFNetwork_multistep'
     model = nn.CFNetwork({
         input_dimension = opt.input_dimension,
         num_functions = opt.num_functions,
-        controller_units_per_layer = opt.controller_units_per_layer,
+        controller_units_per_layer = opt.rnn_size,
         controller_num_layers = opt.controller_num_layers,
         controller_dropout = opt.controller_dropout,
+        steps_per_output = opt.steps_per_output,
+        controller_nonlinearity = opt.controller_nonlinearity,
+        function_nonlinearity = opt.function_nonlinearity,
+        encoded_dimension = opt.encoded_dimension,
     })
     p, gp = model:getControllerParameters()
     p_backup = p:clone()
@@ -272,10 +287,13 @@ elseif mode == 'multistep' then
     model = nn.CFNetwork({
         input_dimension = opt.input_dimension,
         num_functions = opt.num_functions,
-        controller_units_per_layer = opt.controller_units_per_layer,
+        controller_units_per_layer = opt.rnn_size,
         controller_num_layers = opt.controller_num_layers,
         controller_dropout = opt.controller_dropout,
         steps_per_output = opt.steps_per_output,
+        controller_nonlinearity = opt.controller_nonlinearity,
+        function_nonlinearity = opt.function_nonlinearity,
+        encoded_dimension = opt.encoded_dimension,
     })
     p, gp = model:getParameters()
     p_backup = p:clone()

@@ -21,7 +21,7 @@ function WikiBatchLoader.create(preprocessed_data_file, split_fractions)
     -- ydata:sub(1,-2):copy(data:sub(2,-1))
     -- ydata[-1] = data[1]
     -- self.x_batches = data:view(batch_size, -1):split(seq_length, 2)  -- #rows = #batches
-    -- self.nbatches = #self.x_batches
+    -- self.num_batches = #self.x_batches
     -- self.y_batches = ydata:view(batch_size, -1):split(seq_length, 2)  -- #rows = #batches
     -- assert(#self.x_batches == #self.y_batches)
     --
@@ -36,14 +36,14 @@ function WikiBatchLoader.create(preprocessed_data_file, split_fractions)
     assert(split_fractions[3] >= 0 and split_fractions[3] <= 1, 'bad split fraction ' .. split_fractions[3] .. ' for test, not between 0 and 1')
     if split_fractions[3] == 0 then
         -- catch a common special case where the user might not want a test set
-        self.ntrain = math.floor(self.nbatches * split_fractions[1])
-        self.nval = self.nbatches - self.ntrain
+        self.ntrain = math.floor(self.num_batches * split_fractions[1])
+        self.nval = self.num_batches - self.ntrain
         self.ntest = 0
     else
         -- divide data to train/val and allocate rest to test
-        self.ntrain = math.floor(self.nbatches * split_fractions[1])
-        self.nval = math.floor(self.nbatches * split_fractions[2])
-        self.ntest = self.nbatches - self.nval - self.ntrain -- the rest goes to test (to ensure this adds up exactly)
+        self.ntrain = math.floor(self.num_batches * split_fractions[1])
+        self.nval = math.floor(self.num_batches * split_fractions[2])
+        self.ntest = self.num_batches - self.nval - self.ntrain -- the rest goes to test (to ensure this adds up exactly)
     end
 
 
@@ -57,7 +57,7 @@ function WikiBatchLoader.create(preprocessed_data_file, split_fractions)
     self.split_sizes = {self.ntrain, self.nval, self.ntest}
     self.batch_ix = {0,0,0}
 
-    print(string.format('data load done. Number of data batches in train: %d, val: %d, test: %d', self.dataset_split:size(1), self.dataset_split:size(2), self.dataset_split:size(3)))
+    print(string.format('data load done. Number of data batches in train: %d, val: %d, test: %d', self.dataset_split[1]:size(1), self.dataset_split[2]:size(1), self.dataset_split[3]:size(1)))
     collectgarbage()
     return self
 end
