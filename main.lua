@@ -132,16 +132,18 @@ else
         error("Model type not valid.")
     end
 
-    if opt.gpuid >= 0 then
-        model:cuda()
-    end
-
     params, grad_params = model:getParameters()
     params:uniform(-0.08, 0.08) -- small numbers uniform
 end
 
 criterion = nn.CrossEntropyCriterion()
 one_hot = OneHot(vocab_size)
+
+if opt.gpuid >= 0 then
+    model:cuda()
+    criterion:cuda()
+    one_hot:cuda()
+end
 
 -- if model.functions[1].modules[1].weight:type() == "torch.CudaTensor" then
 --     criterion:cuda()
@@ -212,10 +214,10 @@ function feval(x)
     for t=1,opt.seq_length do
         inputs[t] = one_hot:forward(x[{{}, t}])
 
-        predictions[t] = model:step(inputs[t]):clone()
-        if t == 4 and opt.model == 'cf' then
-            vis.hist(model.controller.output[1])
-        end
+        predictions[t] = model:step(inputs[t]) --:clone()
+        -- if t == 4 and opt.model == 'cf' then
+        --     vis.hist(model.controller.output[1])
+        -- end
 
         loss = loss + criterion:forward(predictions[t], y[{{}, t}])
 
@@ -234,6 +236,7 @@ function feval(x)
     grad_params:clamp(-opt.grad_clip, opt.grad_clip)
     -- grad_params:mul(-1)
     -- profiler:lap('batch')
+    collectgarbage()
     return loss, grad_params
 end
 
