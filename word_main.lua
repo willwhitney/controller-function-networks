@@ -201,6 +201,8 @@ function eval_split(split_index, max_batches)
     end
 
     loss = loss / opt.seq_length / n
+
+    collectgarbage()
     return loss
 end
 

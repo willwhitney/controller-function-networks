@@ -31,21 +31,13 @@ jobs = [
             'num_functions': 400,
         },
         {
-            'steps_per_output': 3,
-            'num_functions': 200,
-        },
-        {
-            'rnn_size': 256,
-            'steps_per_output': 3,
-            'num_functions': 200,
-        },
-        {
+            'rnn_size': 400,
             'num_layers': 3,
             'steps_per_output': 3,
             'num_functions': 200,
         },
         {
-            'rnn_size': 256,
+            'rnn_size': 500,
             'num_layers': 3,
             'steps_per_output': 3,
             'num_functions': 200,
@@ -54,28 +46,21 @@ jobs = [
             'rnn_size': 256,
             'num_layers': 3,
             'steps_per_output': 5,
-            'num_functions': 200,
-        },
-        {
-            'rnn_size': 256,
-            'num_layers': 3,
-            'steps_per_output': 3,
-            'num_functions': 100,
-        },
-        {
-            'rnn_size': 256,
-            'num_layers': 3,
-            'steps_per_output': 5,
-            'num_functions': 100,
+            'num_functions': 300,
         },
         {
             'rnn_size': 256,
             'num_layers': 3,
             'steps_per_output': 5,
             'num_functions': 400,
+            'seed': 1,
         },
-
-
+        {
+            'rnn_size': 256,
+            'num_layers': 3,
+            'steps_per_output': 5,
+            'num_functions': 500,
+        },
     ]
 
 if dry_run:
@@ -128,4 +113,4 @@ for job in jobs:
             if 'gpuid' in job and job['gpuid'] >= 0:
                 os.system("sbatch -N 1 -c 2 --gres=gpu:1 -p gpu --mem=8000  --time=6-23:00:00 slurm_scripts/" + jobname + ".slurm &")
             else:
-                os.system("sbatch -N 1 -c 6 --mem=8000 --time=6-23:00:00 slurm_scripts/" + jobname + ".slurm &")
+                os.system("sbatch -N 1 -c 6 --mem=10000 --time=6-23:00:00 slurm_scripts/" + jobname + ".slurm &")

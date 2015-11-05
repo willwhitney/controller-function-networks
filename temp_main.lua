@@ -139,7 +139,7 @@ local params, grad_params
 require 'CFNetwork_multistep'
 cf = nn.CFNetwork({
         input_dimension = vocab_size,
-        encoded_dimension = 65,
+        encoded_dimension = 33,
         num_functions = opt.num_functions,
         controller_units_per_layer = opt.rnn_size,
         controller_num_layers = opt.num_layers,
@@ -162,6 +162,32 @@ local model = nn.Sequential()
 model:add(one_hot)
 -- model:add(nn.Linear(vocab_size, 33))
 model:add(cf)
+
+-- hotswap_decoder = nn.Sequential()
+-- hotswap_decoder:add(nn.Linear(33, vocab_size))
+-- hotswap_decoder:add(nn.Tanh())
+-- hotswap_decoder:add(nn.Linear(vocab_size, vocab_size))
+-- cf.decoder = hotswap_decoder
+
+-- hotswap_decoder = nn.Sequential()
+-- hotswap_decoder:add(nn.Tanh())
+-- hotswap_decoder:add(nn.Linear(33, vocab_size))
+-- cf.decoder = hotswap_decoder
+
+-- hotswap_decoder = nn.Sequential()
+-- hotswap_decoder:add(nn.Linear(33, vocab_size))
+-- cf.decoder = hotswap_decoder
+
+hotswap_decoder = nn.Sequential()
+hotswap_decoder:add(nn.Linear(33, vocab_size))
+hotswap_decoder:add(nn.Tanh())
+cf.decoder = hotswap_decoder
+
+
+-- model:add(nn.Tanh())
+-- model:add(nn.Linear(vocab_size, vocab_size))
+
+
 -- main_model:add(nn.JoinTable(2))
 
 -- local parallel = nn.ParallelTable()
