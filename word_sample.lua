@@ -21,6 +21,7 @@ require 'utils'
 
 -- require 'CFNetwork'
 require 'CFNetwork_multistep'
+require 'SteppableLSTM'
 
 cmd = torch.CmdLine()
 cmd:text()
@@ -96,7 +97,7 @@ end
 checkpoint = torch.load(opt.model)
 model = checkpoint.model
 model:evaluate() -- put in eval mode so that dropout works properly
-recurrent = model:findModules('nn.CFNetwork')[1]
+recurrent = model:findModules('nn.CFNetwork')[1] or model:findModules('nn.SteppableLSTM')[1]
 one_hot = model:findModules('OneHot')[1]
 
 v = torch.load('vocab.t7')
