@@ -20,6 +20,7 @@ cmd:option('-data_dir','data/tinyshakespeare','data directory. Should contain th
 
 -- model params
 cmd:option('-rnn_size', 128, 'size of LSTM internal state')
+cmd:option('-layer_size', 128, 'size of the layers')
 cmd:option('-num_layers', 2, 'number of layers in the LSTM')
 cmd:option('-model', 'cf', 'cf or lstm')
 -- optimization
@@ -114,17 +115,33 @@ if opt.import ~= '' then
 
 else
     if opt.model == 'cf' then
-        require 'CFNetwork_multistep'
-        model = nn.CFNetwork({
-                input_dimension = vocab_size,
-                num_functions = opt.num_functions,
-                controller_units_per_layer = opt.rnn_size,
-                controller_num_layers = opt.num_layers,
-                controller_dropout = opt.dropout,
-                steps_per_output = opt.steps_per_output,
-                controller_nonlinearity = opt.controller_nonlinearity,
-                function_nonlinearity = opt.function_nonlinearity,
-            })
+        if opt.function_nonlinearity == 'lstm' then
+            require 'CFNetwork_recurrent_functions'
+            model = nn.CFNetwork({
+                    input_dimension = vocab_size,
+                    encoded_dimension = opt.layer_size,
+                    num_functions = opt.num_functions,
+                    controller_units_per_layer = opt.rnn_size,
+                    controller_num_layers = opt.num_layers,
+                    controller_dropout = opt.dropout,
+                    steps_per_output = opt.steps_per_output,
+                    controller_nonlinearity = opt.controller_nonlinearity,
+                    function_nonlinearity = opt.function_nonlinearity,
+                })
+        else
+            require 'CFNetwork_multistep'
+            model = nn.CFNetwork({
+                    input_dimension = vocab_size,
+                    encoded_dimension = opt.layer_size,
+                    num_functions = opt.num_functions,
+                    controller_units_per_layer = opt.rnn_size,
+                    controller_num_layers = opt.num_layers,
+                    controller_dropout = opt.dropout,
+                    steps_per_output = opt.steps_per_output,
+                    controller_nonlinearity = opt.controller_nonlinearity,
+                    function_nonlinearity = opt.function_nonlinearity,
+                })
+        end
     elseif opt.model == 'lstm' then
         require 'SteppableLSTM'
         model = nn.SteppableLSTM(vocab_size, vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
@@ -215,9 +232,9 @@ function feval(x)
         inputs[t] = one_hot:forward(x[{{}, t}])
 
         predictions[t] = model:step(inputs[t]) --:clone()
-        -- if t == 4 and opt.model == 'cf' then
-        --     vis.hist(model.controller.output[1])
-        -- end
+        if t == 4 and opt.model == 'cf' then
+            vis.hist(model.controller.output[1])
+        end
 
         loss = loss + criterion:forward(predictions[t], y[{{}, t}])
 
