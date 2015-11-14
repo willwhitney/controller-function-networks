@@ -44,6 +44,8 @@ function Controller:__init(
         self.decoder:add(nn.ReLU())
     elseif nonlinearity == 'prelu' then
         self.decoder:add(nn.PReLU())
+    elseif nonlinearity == 'softmax' then
+        self.decoder:add(nn.SoftMax())
     elseif nonlinearity == 'none' then
 
     else
@@ -95,6 +97,7 @@ function Controller:step(input)
                 self.state[i][1],  -- prev_c for this layer
                 self.state[i][2],  -- prev_h for this layer
             }
+        -- print(inputs)
 
         output = self.network[i]:forward(inputs)
 

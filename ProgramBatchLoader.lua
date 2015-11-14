@@ -23,7 +23,7 @@ function ProgramBatchLoader.create(json_file, batch_size, split_fractions)
     end
 
     function build_next_batch(starting_index)
-        print(starting_index)
+        -- print(starting_index)
         if starting_index + self.batch_size > #self.dataset then
             return nil
         else

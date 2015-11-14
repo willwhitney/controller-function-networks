@@ -14,7 +14,7 @@ IIDCFNetwork, parent = torch.class('nn.IIDCFNetwork', 'nn.Module')
 
 function IIDCFNetwork:__init(options)
     self.controller = nn.Controller(
-            options.encoded_dimension, -- needs to look at the whole input
+            options.input_dimension, -- needs to look at the whole input
             options.num_functions, -- outputs a weighting over all the functions
             options.controller_units_per_layer,
             options.controller_num_layers,
@@ -61,25 +61,30 @@ function IIDCFNetwork:__init(options)
 end
 
 function IIDCFNetwork:step(input)
+    local controller_output = self.controller:step(input)
+    -- print(vis.simplestr(controller_output[1]))
+
+    local function_outputs = {}
+    for i = 1, #self.functions do
+        local function_output = self.functions[i]:forward(input):clone()
+        table.insert(function_outputs, function_output)
+    end
+
+    local current_output = self.mixtable:forward({controller_output, function_outputs}):clone()
+    local step_trace = {
+            input = input:clone(),
+            output = current_output:clone(),
+        }
+    table.insert(self.trace, step_trace)
+    return current_output
+end
+
+function IIDCFNetwork:forward(input)
+    print(input)
     local next_input = input:clone()
     local step_trace = {}
-    for substep = 1, self.steps_per_output do
-        local controller_output = self.controller:step(next_input)
-        -- print(vis.simplestr(controller_output[1]))
-
-        local function_outputs = {}
-        for i = 1, #self.functions do
-            local function_output = self.functions[i]:forward(next_input):clone()
-            table.insert(function_outputs, function_output)
-        end
-
-        local current_output = self.mixtable:forward({controller_output, function_outputs}):clone()
-        local substep_trace = {
-                input = next_input:clone(),
-                output = current_output:clone(),
-            }
-        table.insert(step_trace, substep_trace)
-        next_input = current_output:clone()
+    for t = 1, self.steps_per_output do
+        next_input = self:step(next_input):clone()
     end
 
     table.insert(self.trace, step_trace)
@@ -88,12 +93,35 @@ function IIDCFNetwork:step(input)
     return self.output
 end
 
-function IIDCFNetwork:forward(input)
-    self:reset()
-    return self:step(input)
+function IIDCFNetwork:backstep(t, gradOutput)
+    local step_trace = self.trace[t]
+    local step_input = step_trace.input
+
+    local controller_step_trace = self.controller.trace[#self.controller.trace]
+    local controller_output = controller_step_trace[#controller_step_trace].output
+
+    -- forward the functions to guarantee correct operation
+    local function_outputs = {}
+    for i = 1, #self.functions do
+        table.insert(function_outputs, self.functions[i]:forward(step_input):clone())
+    end
+    self.mixtable:forward({controller_output, function_outputs})
+
+    local grad_table = self.mixtable:backward(
+            {controller_output, function_outputs},
+            current_gradOutput)
+
+    local grad_controller_output = grad_table[1]
+    local grad_function_outputs = grad_table[2]
+
+    current_gradOutput = self.controller:backstep(nil, grad_controller_output):clone()
+    for i = 1, #self.functions do
+        current_gradOutput = current_gradOutput + self.functions[i]:backward(step_input, grad_function_outputs[i])
+    end
+    return current_gradOutput
 end
 
-function IIDCFNetwork:backstep(input, gradOutput)
+function IIDCFNetwork:backward(input, gradOutput)
     local timestep = #self.trace
     local step_trace = self.trace[timestep]
     if step_trace[1].input:norm() ~= input:norm() then
@@ -101,41 +129,14 @@ function IIDCFNetwork:backstep(input, gradOutput)
     end
     local current_gradOutput = gradOutput
 
-    for substep = self.steps_per_output, 1, -1 do
-        local substep_trace = step_trace[substep]
-        local substep_input = substep_trace.input
-
-        local controller_step_trace = self.controller.trace[#self.controller.trace]
-        local controller_output = controller_step_trace[#controller_step_trace].output
-
-        -- forward the functions to guarantee correct operation
-        local function_outputs = {}
-        for i = 1, #self.functions do
-            table.insert(function_outputs, self.functions[i]:forward(substep_input):clone())
-        end
-        self.mixtable:forward({controller_output, function_outputs})
-
-        local grad_table = self.mixtable:backward(
-                {controller_output, function_outputs},
-                current_gradOutput)
-
-        local grad_controller_output = grad_table[1]
-        local grad_function_outputs = grad_table[2]
-
-        current_gradOutput = self.controller:backstep(nil, grad_controller_output):clone()
-        for i = 1, #self.functions do
-            current_gradOutput = current_gradOutput + self.functions[i]:backward(substep_input, grad_function_outputs[i])
-        end
+    for t = self.steps_per_output, 1, -1 do
+        -- pop this timestep from our stack
+        self.trace[timestep] = nil
+        current_gradOutput = self:backstep(t, current_gradOutput)
     end
     self.gradInput = current_gradOutput
 
-    -- pop this timestep from our stack
-    self.trace[timestep] = nil
     return self.gradInput
-end
-
-function IIDCFNetwork:backward(input, gradOutput)
-    return self:backstep(input, gradOutput)
 end
 
 function IIDCFNetwork:reset(batch_size)
@@ -228,7 +229,7 @@ function IIDCFNetwork:getControllerParameters()
     return parent.flatten(c_parameters), parent.flatten(c_gradParameters)
 end
 
-function CFNetwork:training()
+function IIDCFNetwork:training()
     for i = 1, #self.functions do
         self.functions[i]:training()
     end
@@ -236,7 +237,7 @@ function CFNetwork:training()
     self.controller:training()
 end
 
-function CFNetwork:evaluate()
+function IIDCFNetwork:evaluate()
     for i = 1, #self.functions do
         self.functions[i]:evaluate()
     end
@@ -244,7 +245,7 @@ function CFNetwork:evaluate()
     self.controller:evaluate()
 end
 
-function CFNetwork:cuda()
+function IIDCFNetwork:cuda()
     for i = 1, #self.functions do
         self.functions[i]:cuda()
     end
@@ -252,7 +253,7 @@ function CFNetwork:cuda()
     self.controller:cuda()
 end
 
-function CFNetwork:float()
+function IIDCFNetwork:float()
     for i = 1, #self.functions do
         self.functions[i]:float()
     end
@@ -260,7 +261,7 @@ function CFNetwork:float()
     self.controller:float()
 end
 
-function CFNetwork:double()
+function IIDCFNetwork:double()
     for i = 1, #self.functions do
         self.functions[i]:double()
     end

@@ -7,7 +7,7 @@ require 'vis'
 
 require 'utils'
 require 'OneHot'
-local WikiBatchLoader = require 'WikiBatchLoader'
+local ProgramBatchLoader = require 'ProgramBatchLoader'
 
 
 cmd = torch.CmdLine()
@@ -17,12 +17,12 @@ cmd:text()
 cmd:text('Options')
 
 -- data
-cmd:option('-data_file','','data file. should be a tensor. if none specified, will use wikipedia of correct vocab size.')
-cmd:option('-vocab_size',10000,'what vocab size to use')
+cmd:option('-data_file','data/primitives.json','dataset')
+cmd:option('-num_primitives',8,'how many primitives are in this data')
 
 -- model params
-cmd:option('-rnn_size', 128, 'size of LSTM internal state')
-cmd:option('-layer_size', 128, 'size of the layers')
+cmd:option('-rnn_size', 20, 'size of LSTM internal state')
+cmd:option('-layer_size', 10, 'size of the layers')
 cmd:option('-num_layers', 2, 'number of layers in the LSTM')
 cmd:option('-model', 'cf', 'cf or lstm')
 
@@ -36,7 +36,7 @@ cmd:option('-dropout',0,'dropout for regularization, used after each RNN hidden 
 -- cmd:option('-seq_length',50,'number of timesteps to unroll for')
 
 cmd:option('-steps_per_output',1,'number of feedback steps to run per output')
-cmd:option('-num_functions',65,'number of function layers to create')
+cmd:option('-num_functions',8,'number of function layers to create')
 
 cmd:option('-controller_nonlinearity','tanh','nonlinearity for output of controller. Sets the range of the weights.')
 cmd:option('-function_nonlinearity','sigmoid','nonlinearity for functions. sets range of function output')
@@ -44,7 +44,7 @@ cmd:option('-function_nonlinearity','sigmoid','nonlinearity for functions. sets 
 
 
 
-cmd:option('-batch_size',30,'number of sequences to train on in parallel')
+cmd:option('-batch_size',1,'number of sequences to train on in parallel')
 
 cmd:option('-max_epochs',20,'number of full passes through the training data')
 cmd:option('-grad_clip',3,'clip gradients at this value')
@@ -70,11 +70,6 @@ cmd:text()
 opt = cmd:parse(arg)
 torch.manualSeed(opt.seed)
 
-local vocab_size = opt.vocab_size
-if opt.data_file == '' then
-    opt.data_file = "data/wiki/dataset_"..vocab_size..".t7"
-end
-
 local savedir = string.format('%s/%s', opt.checkpoint_dir, opt.name)
 os.execute('mkdir -p '..savedir)
 os.execute(string.format('rm %s/*', savedir))
@@ -97,13 +92,7 @@ local test_frac = math.max(0, 1 - (opt.train_frac + opt.val_frac))
 local split_sizes = {opt.train_frac, opt.val_frac, test_frac}
 
 -- create the data loader class
-local loader = WikiBatchLoader.create(opt.data_file, split_sizes)
-opt.seq_length = loader.seq_length - 1
--- local vocab_size = loader.vocab_size  -- the number of distinct characters
-
-
--- local vocab = loader.vocab_mapping
--- print('vocab size: ' .. vocab_size)
+local loader = ProgramBatchLoader.create(opt.data_file, opt.batch_size, split_sizes)
 
 local params, grad_params
 if opt.import ~= '' then
@@ -111,13 +100,13 @@ if opt.import ~= '' then
     model = checkpoint.model
     params, grad_params = model:getParameters()
 
-    -- local vocab_compatible = true
-    -- for c,i in pairs(checkpoint.vocab) do
-    --     if not vocab[c] == i then
-    --         vocab_compatible = false
-    --     end
-    -- end
-    -- assert(vocab_compatible, 'error, the character vocabulary for this dataset and the one in the saved checkpoint are not the same. This is trouble.')
+    local vocab_compatible = true
+    for c,i in pairs(checkpoint.vocab) do
+        if not vocab[c] == i then
+            vocab_compatible = false
+        end
+    end
+    assert(vocab_compatible, 'error, the character vocabulary for this dataset and the one in the saved checkpoint are not the same. This is trouble.')
     -- overwrite model settings based on checkpoint to ensure compatibility
     print('overwriting rnn_size=' .. checkpoint.opt.rnn_size .. ', num_layers=' .. checkpoint.opt.num_layers .. checkpoint.opt.steps_per_output .. ', steps_per_output=' .. checkpoint.opt.num_functions .. ', num_functions=' .. ' based on the checkpoint.')
     opt.rnn_size = checkpoint.opt.rnn_size
@@ -127,31 +116,20 @@ if opt.import ~= '' then
 
 else
     if opt.model == 'cf' then
-        require 'NewIIDCF'
-        one_hot = OneHot(vocab_size)
-        recurrent = nn.IIDCFNetwork({
-                input_dimension = vocab_size,
-                encoded_dimension = opt.layer_size,
+        require 'SamplingCFNetwork'
+        model = nn.SamplingCFNetwork({
+                input_dimension = opt.num_primitives + 10,
+                encoded_dimension = 10,
                 num_functions = opt.num_functions,
                 controller_units_per_layer = opt.rnn_size,
                 controller_num_layers = opt.num_layers,
                 controller_dropout = opt.dropout,
                 steps_per_output = opt.steps_per_output,
-                controller_nonlinearity = opt.controller_nonlinearity,
                 function_nonlinearity = opt.function_nonlinearity,
             })
-        model = nn.Sequential()
-
-        model:add(one_hot)
-        model:add(recurrent)
     elseif opt.model == 'lstm' then
         require 'SteppableLSTM'
-        one_hot = OneHot(vocab_size)
-        recurrent = nn.SteppableLSTM(vocab_size, vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
-        model = nn.Sequential()
-
-        model:add(one_hot)
-        model:add(recurrent)
+        model = nn.SteppableLSTM(vocab_size, vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
     else
         error("Model type not valid.")
     end
@@ -160,11 +138,13 @@ else
     params:uniform(-0.08, 0.08) -- small numbers uniform
 end
 
-criterion = nn.CrossEntropyCriterion()
+-- criterion = nn.CrossEntropyCriterion()
+one_hot = OneHot(opt.num_primitives)
 
 if opt.gpuid >= 0 then
     model:cuda()
     criterion:cuda()
+    one_hot:cuda()
 end
 
 -- if model.functions[1].modules[1].weight:type() == "torch.CudaTensor" then
@@ -181,7 +161,7 @@ function eval_split(split_index, max_batches)
 
     loader:reset_batch_pointer(split_index) -- move batch iteration pointer for this split to front
     local loss = 0
-    recurrent:reset()
+    model:reset()
     model:evaluate()
 
     for i = 1,n do -- iterate over batches in the split
@@ -193,16 +173,18 @@ function eval_split(split_index, max_batches)
             y = y:float():cuda()
         end
         -- forward pass
-        predictions = model:forward(x)
-        for t = 1, opt.seq_length do
-            loss = loss + criterion:forward(predictions[t], y[{{}, t}])
+        for t=1,opt.seq_length do
+            local input = one_hot:forward(x[{{}, t}])
+
+            local prediction = model:step(input)
+            -- print("Input:", vis.simplestr(input[1]))
+            -- print("Prediction:", vis.simplestr(prediction[1]))
+            loss = loss + criterion:forward(prediction, y[{{}, t}])
         end
         print(i .. '/' .. n .. '...')
     end
 
     loss = loss / opt.seq_length / n
-
-    collectgarbage()
     return loss
 end
 
@@ -214,7 +196,7 @@ function feval(x)
         params:copy(x)
     end
     grad_params:zero()
-    recurrent:reset()
+    model:reset()
 
     ------------------ get minibatch -------------------
     local x, y = loader:next_batch(1)
@@ -223,24 +205,24 @@ function feval(x)
         x = x:float():cuda()
         y = y:float():cuda()
     end
-    -- print(x)
 
     ------------------- forward pass -------------------
-    local predictions = {}           -- softmax outputs
-    local grad_outputs = {}
-    local inputs = {}
-    local loss = 0
-
     model:training() -- make sure we are in correct mode (this is cheap, sets flag)
-    predictions = model:forward(x)
-    for t = 1, opt.seq_length do
-        loss = loss + criterion:forward(predictions[t], y[{{}, t}])
-        grad_outputs[t] = criterion:backward(predictions[t], y[{{}, t}]):clone()
-    end
-    loss = loss / opt.seq_length
-    ------------------ backward pass -------------------
 
-    model:backward(x, grad_outputs)
+    local primitive = one_hot:forward(x[1])
+    local input = {primitive, x[2]}
+    local loss = model:forward(input, y)
+
+    -- if t == 4 and opt.model == 'cf' then
+    --     vis.hist(model.controller.output[1])
+    -- end
+
+    -- loss = loss + criterion:forward(predictions[t], y[{{}, t}])
+
+    -- grad_outputs[t] = criterion:backward(predictions[t], y[{{}, t}]):clone()
+
+    ------------------ backward pass -------------------
+    model:backward(input, y)
     grad_params:clamp(-opt.grad_clip, opt.grad_clip)
     -- grad_params:mul(-1)
     -- profiler:lap('batch')
@@ -296,7 +278,7 @@ for i = 1, iterations do
         checkpoint.val_losses = val_losses
         checkpoint.i = i
         checkpoint.epoch = epoch
-        -- checkpoint.vocab = loader.vocab_mapping
+        checkpoint.vocab = loader.vocab_mapping
         torch.save(model_file, checkpoint)
 
 
