@@ -4,10 +4,7 @@
 .ipynb_checkpoints
 cv/
 sample.lua
-data/double_alternation/
-data/alternation/
-data/ones/
-data/wiki/
+data/
 slurm_logs/
 slurm_scripts/
 networks/
