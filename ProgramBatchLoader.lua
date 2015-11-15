@@ -36,7 +36,8 @@ function ProgramBatchLoader.create(json_file, batch_size, split_fractions)
                 table.insert(outputs, self.dataset[starting_index + i][3])
             end
             local batch = {
-                    torch.Tensor(primitive_indices),
+                    -- the +1 adjusts for zero-indexed to one-indexed language shift
+                    torch.Tensor(primitive_indices) + 1,
                     torch.Tensor(inputs),
                     torch.Tensor(outputs),
                 }

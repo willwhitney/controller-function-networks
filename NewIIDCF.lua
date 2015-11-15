@@ -14,7 +14,7 @@ IIDCFNetwork, parent = torch.class('nn.IIDCFNetwork', 'nn.Module')
 
 function IIDCFNetwork:__init(options)
     self.controller = nn.Controller(
-            options.input_dimension, -- needs to look at the whole input
+            options.encoded_dimension, -- needs to look at the whole input
             options.num_functions, -- outputs a weighting over all the functions
             options.controller_units_per_layer,
             options.controller_num_layers,
@@ -31,7 +31,7 @@ function IIDCFNetwork:__init(options)
         -- local layer = nn.Constant(const)
 
         local layer = nn.Sequential()
-        layer:add(nn.Linear(options.input_dimension, options.input_dimension))
+        layer:add(nn.Linear(options.encoded_dimension, options.encoded_dimension))
         -- layer:add(nn.Sigmoid())
         if options.function_nonlinearity == 'sigmoid' then
             layer:add(nn.Sigmoid())
@@ -45,6 +45,8 @@ function IIDCFNetwork:__init(options)
             error("Must specify a nonlinearity for the functions.")
         end
 
+        print(layer)
+
         -- local layer = nn.Sequential()
         -- layer:add(nn.Linear(options.input_dimension, options.input_dimension))
         -- layer:add(nn.Tanh())
@@ -52,10 +54,12 @@ function IIDCFNetwork:__init(options)
         table.insert(self.functions, layer)
     end
 
-    for i = 1, #self.functions do
-        print(self.functions[i])
-    end
+    -- for i = 1, #self.functions do
+    --     print(self.functions[i])
+    -- end
 
+    self.encoder = nn.Linear(options.input_dimension, options.encoded_dimension)
+    self.decoder = nn.Linear(options.encoded_dimension, options.input_dimension)
     self.mixtable = nn.MixtureTable()
     self:reset()
 end
@@ -80,17 +84,18 @@ function IIDCFNetwork:step(input)
 end
 
 function IIDCFNetwork:forward(input)
-    print(input)
-    local next_input = input:clone()
-    local step_trace = {}
+    self:reset()
+    local next_input = self.encoder:forward(input):clone()
     for t = 1, self.steps_per_output do
         next_input = self:step(next_input):clone()
     end
 
-    table.insert(self.trace, step_trace)
-
-    self.output = next_input
+    self.output = self.decoder:forward(next_input):clone()
     return self.output
+end
+
+function IIDCFNetwork:updateOutput(input)
+    return self:forward(input)
 end
 
 function IIDCFNetwork:backstep(t, gradOutput)
@@ -127,14 +132,15 @@ function IIDCFNetwork:backward(input, gradOutput)
     if step_trace[1].input:norm() ~= input:norm() then
         error("IIDCFNetwork:backstep has been called in the wrong order.")
     end
-    local current_gradOutput = gradOutput
+    local current_gradOutput = self.decoder:backward(step_trace.output, gradOutput)
 
     for t = self.steps_per_output, 1, -1 do
-        -- pop this timestep from our stack
-        self.trace[timestep] = nil
         current_gradOutput = self:backstep(t, current_gradOutput)
+
+        -- pop this timestep from our stack
+        self.trace[t] = nil
     end
-    self.gradInput = current_gradOutput
+    self.gradInput = self.encoder:backward(input, current_gradOutput)
 
     return self.gradInput
 end

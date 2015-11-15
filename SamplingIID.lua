@@ -1,5 +1,6 @@
 require 'nn'
 require 'Controller'
+require 'ExpectationCriterion'
 require 'Constant'
 require 'vis'
 
@@ -19,7 +20,7 @@ function SamplingCFNetwork:__init(options)
             options.controller_units_per_layer,
             options.controller_num_layers,
             options.controller_dropout,
-            options.controller_nonlinearity )
+            'softmax' )
 
     self.steps_per_output = options.steps_per_output or 1
 
@@ -31,7 +32,7 @@ function SamplingCFNetwork:__init(options)
         -- local layer = nn.Constant(const)
 
         local layer = nn.Sequential()
-        layer:add(nn.Linear(options.input_dimension, options.input_dimension))
+        layer:add(nn.Linear(options.encoded_dimension, options.encoded_dimension))
         -- layer:add(nn.Sigmoid())
         if options.function_nonlinearity == 'sigmoid' then
             layer:add(nn.Sigmoid())
@@ -63,34 +64,39 @@ function SamplingCFNetwork:__init(options)
 end
 
 function SamplingCFNetwork:step(input)
-    local controller_output = self.controller:step(input)
-    -- print(vis.simplestr(controller_output[1]))
+    local controller_metadata, input_vector = table.unpack(input)
+    local controller_input = self.jointable:forward(input)
+    local controller_output = self.controller:step(controller_input)
+    print(vis.simplestr(controller_output[1]))
 
-    local function_outputs = {}
+    local function_outputs = torch.zeros(#self.functions, input_vector:size(2))
     for i = 1, #self.functions do
-        local function_output = self.functions[i]:forward(input):clone()
-        table.insert(function_outputs, function_output)
+        local function_output = self.functions[i]:forward(input_vector):clone()[1]
+        function_outputs[i] = function_output
     end
-
-    local current_output = self.mixtable:forward({controller_output, function_outputs}):clone()
+    local current_output = {controller_output, function_outputs}
+    -- local current_output = self.mixtable:forward({controller_output, function_outputs}):clone()
     local step_trace = {
-            input = input:clone(),
-            output = current_output:clone(),
+            input = {
+                    input[1]:clone(),
+                    input[2]:clone(),
+                },
+            -- output = current_output:clone(),
+            output = current_output,
         }
     table.insert(self.trace, step_trace)
     return current_output
 end
 
 function SamplingCFNetwork:forward(input, target)
-    local next_input = input:clone()
-    local step_trace = {}
+    self:reset()
+    -- print(input)
+    local next_input = input
     for t = 1, self.steps_per_output do
-        next_input = self:step(next_input):clone()
+        next_input = self:step(next_input)
     end
 
-    table.insert(self.trace, step_trace)
-
-    self.output = self.criterion:forward(next_input)
+    self.output = self.criterion:forward(next_input, target)
     return self.output
 end
 
@@ -98,43 +104,55 @@ function SamplingCFNetwork:backstep(t, gradOutput)
     local step_trace = self.trace[t]
     local step_input = step_trace.input
 
+    local controller_metadata, input_vector = table.unpack(step_input)
+    local grad_probs, grad_outputs = table.unpack(gradOutput)
+    local controller_input = self.jointable:forward(input)
+
     local controller_step_trace = self.controller.trace[#self.controller.trace]
     local controller_output = controller_step_trace[#controller_step_trace].output
 
     -- forward the functions to guarantee correct operation
     local function_outputs = {}
     for i = 1, #self.functions do
-        table.insert(function_outputs, self.functions[i]:forward(step_input):clone())
+        table.insert(function_outputs, self.functions[i]:forward(input_vector):clone())
     end
-    self.mixtable:forward({controller_output, function_outputs})
+    -- self.mixtable:forward({controller_output, function_outputs})
 
-    local grad_table = self.mixtable:backward(
-            {controller_output, function_outputs},
-            current_gradOutput)
+    -- local grad_table = self.mixtable:backward(
+            -- {controller_output, function_outputs},
+            -- current_gradOutput)
 
-    local grad_controller_output = grad_table[1]
-    local grad_function_outputs = grad_table[2]
+    -- local grad_controller_output = grad_table[1]
+    -- local grad_function_outputs = grad_table[2]
 
-    current_gradOutput = self.controller:backstep(nil, grad_controller_output):clone()
+    local grad_controller_input = self.controller:backstep(controller_input, grad_probs):clone()
+    local grad_input_table = self.jointable:backward(step_input, grad_controller_input)
+    -- ^ yields a table of form {grad_controller_metadata, grad_input_vector}
+
+    -- print(grad_outputs)
     for i = 1, #self.functions do
-        current_gradOutput = current_gradOutput + self.functions[i]:backward(step_input, grad_function_outputs[i])
+        -- add the gradients from each of the functions to grad_input_vector
+        grad_input_table[2] = grad_input_table[2] + self.functions[i]:backward(input_vector, grad_outputs[i])
     end
     return current_gradOutput
 end
 
 function SamplingCFNetwork:backward(input, target)
-    local gradOutput = self.criterion:backward(input, target)
+    -- print("input\n", input)
+    -- print("target\n", target)
     local timestep = #self.trace
-    local step_trace = self.trace[timestep]
-    if step_trace[1].input:norm() ~= input:norm() then
+    if self.trace[1].input[2]:norm() ~= input[2]:norm() then
         error("SamplingCFNetwork:backstep has been called in the wrong order.")
     end
+    local gradOutput = self.criterion:backward(self.trace[timestep].output, target)
+    -- print("gradOutput\n", gradOutput)
     local current_gradOutput = gradOutput
 
     for t = self.steps_per_output, 1, -1 do
-        -- pop this timestep from our stack
-        self.trace[timestep] = nil
         current_gradOutput = self:backstep(t, current_gradOutput)
+
+        -- pop this timestep from our stack
+        -- self.trace[t] = nil
     end
     self.gradInput = current_gradOutput
 

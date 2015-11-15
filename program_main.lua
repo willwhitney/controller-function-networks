@@ -21,9 +21,9 @@ cmd:option('-data_file','data/primitives.json','dataset')
 cmd:option('-num_primitives',8,'how many primitives are in this data')
 
 -- model params
-cmd:option('-rnn_size', 20, 'size of LSTM internal state')
+cmd:option('-rnn_size', 10, 'size of LSTM internal state')
 cmd:option('-layer_size', 10, 'size of the layers')
-cmd:option('-num_layers', 2, 'number of layers in the LSTM')
+cmd:option('-num_layers', 1, 'number of layers in the LSTM')
 cmd:option('-model', 'cf', 'cf or lstm')
 
 
@@ -116,7 +116,7 @@ if opt.import ~= '' then
 
 else
     if opt.model == 'cf' then
-        require 'SamplingCFNetwork'
+        require 'SamplingIID'
         model = nn.SamplingCFNetwork({
                 input_dimension = opt.num_primitives + 10,
                 encoded_dimension = 10,
@@ -125,6 +125,7 @@ else
                 controller_num_layers = opt.num_layers,
                 controller_dropout = opt.dropout,
                 steps_per_output = opt.steps_per_output,
+                controller_nonlinearity = opt.controller_nonlinearity,
                 function_nonlinearity = opt.function_nonlinearity,
             })
     elseif opt.model == 'lstm' then
