@@ -38,8 +38,8 @@ cmd:option('-dropout',0,'dropout for regularization, used after each RNN hidden 
 cmd:option('-steps_per_output',1,'number of feedback steps to run per output')
 cmd:option('-num_functions',8,'number of function layers to create')
 
-cmd:option('-controller_nonlinearity','tanh','nonlinearity for output of controller. Sets the range of the weights.')
-cmd:option('-function_nonlinearity','sigmoid','nonlinearity for functions. sets range of function output')
+cmd:option('-controller_nonlinearity','softmax','nonlinearity for output of controller. Sets the range of the weights.')
+cmd:option('-function_nonlinearity','relu','nonlinearity for functions. sets range of function output')
 -- cmd:option('-num_functions',65,'number of function layers to create')
 
 
@@ -92,7 +92,7 @@ local test_frac = math.max(0, 1 - (opt.train_frac + opt.val_frac))
 local split_sizes = {opt.train_frac, opt.val_frac, test_frac}
 
 -- create the data loader class
-local loader = ProgramBatchLoader.create(opt.data_file, opt.batch_size, split_sizes)
+loader = ProgramBatchLoader.create(opt.data_file, opt.batch_size, split_sizes)
 
 local params, grad_params
 if opt.import ~= '' then
@@ -116,8 +116,8 @@ if opt.import ~= '' then
 
 else
     if opt.model == 'cf' then
-        require 'SamplingIID'
-        model = nn.SamplingCFNetwork({
+        require 'IIDCF_meta'
+        model = nn.IIDCFNetwork({
                 input_dimension = opt.num_primitives + 10,
                 encoded_dimension = 10,
                 num_functions = opt.num_functions,
@@ -128,6 +128,18 @@ else
                 controller_nonlinearity = opt.controller_nonlinearity,
                 function_nonlinearity = opt.function_nonlinearity,
             })
+        -- require 'SamplingIID'
+        -- model = nn.SamplingCFNetwork({
+        --         input_dimension = opt.num_primitives + 10,
+        --         encoded_dimension = 10,
+        --         num_functions = opt.num_functions,
+        --         controller_units_per_layer = opt.rnn_size,
+        --         controller_num_layers = opt.num_layers,
+        --         controller_dropout = opt.dropout,
+        --         steps_per_output = opt.steps_per_output,
+        --         controller_nonlinearity = opt.controller_nonlinearity,
+        --         function_nonlinearity = opt.function_nonlinearity,
+        --     })
     elseif opt.model == 'lstm' then
         require 'SteppableLSTM'
         model = nn.SteppableLSTM(vocab_size, vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
@@ -139,8 +151,10 @@ else
     params:uniform(-0.08, 0.08) -- small numbers uniform
 end
 
--- criterion = nn.CrossEntropyCriterion()
+criterion = nn.MSECriterion()
 one_hot = OneHot(opt.num_primitives)
+
+-- [[
 
 if opt.gpuid >= 0 then
     model:cuda()
@@ -210,20 +224,24 @@ function feval(x)
     ------------------- forward pass -------------------
     model:training() -- make sure we are in correct mode (this is cheap, sets flag)
 
+    print("Primitive:", x[1][1])
+
     local primitive = one_hot:forward(x[1])
     local input = {primitive, x[2]}
-    local loss = model:forward(input, y)
+    -- print(input)
+    -- local loss = model:forward(input, y)
+    local output = model:forward(input)
+    -- print(x[2][1])
+    print(vis.simplestr(x[2][1]))
+    print(vis.simplestr(output[1]))
 
-    -- if t == 4 and opt.model == 'cf' then
-    --     vis.hist(model.controller.output[1])
-    -- end
 
-    -- loss = loss + criterion:forward(predictions[t], y[{{}, t}])
-
-    -- grad_outputs[t] = criterion:backward(predictions[t], y[{{}, t}]):clone()
+    loss = criterion:forward(output, y)
+    grad_output = criterion:backward(output, y):clone()
 
     ------------------ backward pass -------------------
-    model:backward(input, y)
+    model:backward(input, grad_output)
+    -- model:backward(input, y)
     grad_params:clamp(-opt.grad_clip, opt.grad_clip)
     -- grad_params:mul(-1)
     -- profiler:lap('batch')
@@ -240,6 +258,7 @@ local iterations_per_epoch = loader.ntrain
 local loss0 = nil
 
 for i = 1, iterations do
+    print('\n')
     local epoch = i / loader.ntrain
 
     local timer = torch.Timer()
@@ -260,37 +279,37 @@ for i = 1, iterations do
         end
     end
 
-    -- every now and then or on last iteration
-    if i % opt.eval_val_every == 0 or i == iterations then
-        -- evaluate loss on validation data
-        local val_loss = eval_split(2) -- 2 = validation
-        val_losses[i] = val_loss
-        print(string.format('[epoch %.3f] Validation loss: %6.8f', epoch, val_loss))
-
-
-
-        local model_file = string.format('%s/epoch%.2f_%.4f.t7', savedir, epoch, val_loss)
-        print('saving checkpoint to ' .. model_file)
-        local checkpoint = {}
-        checkpoint.model = model
-        checkpoint.opt = opt
-        checkpoint.train_losses = train_losses
-        checkpoint.val_loss = val_loss
-        checkpoint.val_losses = val_losses
-        checkpoint.i = i
-        checkpoint.epoch = epoch
-        checkpoint.vocab = loader.vocab_mapping
-        torch.save(model_file, checkpoint)
-
-
-
-        local val_loss_log = io.open(savedir ..'/val_loss.txt', 'a')
-        val_loss_log:write(val_loss .. "\n")
-        val_loss_log:flush()
-        val_loss_log:close()
-        -- os.execute("say 'Checkpoint saved.'")
-        -- os.execute(string.format("say 'Epoch %.2f'", epoch))
-    end
+    -- -- every now and then or on last iteration
+    -- if i % opt.eval_val_every == 0 or i == iterations then
+    --     -- evaluate loss on validation data
+    --     local val_loss = eval_split(2) -- 2 = validation
+    --     val_losses[i] = val_loss
+    --     print(string.format('[epoch %.3f] Validation loss: %6.8f', epoch, val_loss))
+    --
+    --
+    --
+    --     local model_file = string.format('%s/epoch%.2f_%.4f.t7', savedir, epoch, val_loss)
+    --     print('saving checkpoint to ' .. model_file)
+    --     local checkpoint = {}
+    --     checkpoint.model = model
+    --     checkpoint.opt = opt
+    --     checkpoint.train_losses = train_losses
+    --     checkpoint.val_loss = val_loss
+    --     checkpoint.val_losses = val_losses
+    --     checkpoint.i = i
+    --     checkpoint.epoch = epoch
+    --     checkpoint.vocab = loader.vocab_mapping
+    --     torch.save(model_file, checkpoint)
+    --
+    --
+    --
+    --     local val_loss_log = io.open(savedir ..'/val_loss.txt', 'a')
+    --     val_loss_log:write(val_loss .. "\n")
+    --     val_loss_log:flush()
+    --     val_loss_log:close()
+    --     -- os.execute("say 'Checkpoint saved.'")
+    --     -- os.execute(string.format("say 'Epoch %.2f'", epoch))
+    -- end
 
     if i % opt.print_every == 0 then
         print(string.format("%d/%d (epoch %.3f), train_loss = %6.8f, grad/param norm = %6.4e, time/batch = %.2fs", i, iterations, epoch, train_loss, grad_params:norm() / params:norm(), time))
@@ -312,3 +331,4 @@ for i = 1, iterations do
     --     break -- halt
     -- end
 end
+--]]

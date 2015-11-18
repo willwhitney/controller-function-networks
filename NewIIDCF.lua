@@ -114,7 +114,7 @@ function IIDCFNetwork:backstep(t, gradOutput)
 
     local grad_table = self.mixtable:backward(
             {controller_output, function_outputs},
-            current_gradOutput)
+            gradOutput)
 
     local grad_controller_output = grad_table[1]
     local grad_function_outputs = grad_table[2]
@@ -127,9 +127,12 @@ function IIDCFNetwork:backstep(t, gradOutput)
 end
 
 function IIDCFNetwork:backward(input, gradOutput)
+    print(self.trace)
     local timestep = #self.trace
     local step_trace = self.trace[timestep]
-    if step_trace[1].input:norm() ~= input:norm() then
+    -- print(step_trace.input)
+    -- print(self.encoder:forward(input))
+    if step_trace.input:norm() ~= self.encoder:forward(input):norm() then
         error("IIDCFNetwork:backstep has been called in the wrong order.")
     end
     local current_gradOutput = self.decoder:backward(step_trace.output, gradOutput)

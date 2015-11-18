@@ -14,6 +14,9 @@ for each :forward, but does not backpropagate over multiple inputs.
 SamplingCFNetwork, parent = torch.class('nn.SamplingCFNetwork', 'nn.Module')
 
 function SamplingCFNetwork:__init(options)
+    if options.controller_nonlinearity ~= 'softmax' then
+        print("Overriding controller nonlinearity with softmax.")
+    end
     self.controller = nn.Controller(
             options.input_dimension, -- needs to look at the whole input
             options.num_functions, -- outputs a weighting over all the functions
@@ -49,13 +52,13 @@ function SamplingCFNetwork:__init(options)
         -- local layer = nn.Sequential()
         -- layer:add(nn.Linear(options.input_dimension, options.input_dimension))
         -- layer:add(nn.Tanh())
-
+        print(layer)
         table.insert(self.functions, layer)
     end
 
-    for i = 1, #self.functions do
-        print(self.functions[i])
-    end
+    -- for i = 1, #self.functions do
+    --     print(self.functions[i])
+    -- end
 
     self.mixtable = nn.MixtureTable()
     self.criterion = nn.ExpectationCriterion(nn.MSECriterion())
@@ -134,7 +137,7 @@ function SamplingCFNetwork:backstep(t, gradOutput)
         -- add the gradients from each of the functions to grad_input_vector
         grad_input_table[2] = grad_input_table[2] + self.functions[i]:backward(input_vector, grad_outputs[i])
     end
-    return current_gradOutput
+    return grad_input_table
 end
 
 function SamplingCFNetwork:backward(input, target)

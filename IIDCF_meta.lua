@@ -1,5 +1,6 @@
 require 'nn'
 require 'Controller'
+require 'ExpectationCriterion'
 require 'Constant'
 require 'vis'
 
@@ -13,8 +14,11 @@ for each :forward, but does not backpropagate over multiple inputs.
 IIDCFNetwork, parent = torch.class('nn.IIDCFNetwork', 'nn.Module')
 
 function IIDCFNetwork:__init(options)
+    -- if options.controller_nonlinearity ~= 'softmax' then
+    --     print("Overriding controller nonlinearity with softmax.")
+    -- end
     self.controller = nn.Controller(
-            options.encoded_dimension, -- needs to look at the whole input
+            options.input_dimension, -- needs to look at the whole input
             options.num_functions, -- outputs a weighting over all the functions
             options.controller_units_per_layer,
             options.controller_num_layers,
@@ -31,7 +35,7 @@ function IIDCFNetwork:__init(options)
         -- local layer = nn.Constant(const)
 
         local layer = nn.Sequential()
-        layer:add(nn.Linear(options.input_dimension, options.input_dimension))
+        layer:add(nn.Linear(options.encoded_dimension, options.encoded_dimension))
         -- layer:add(nn.Sigmoid())
         if options.function_nonlinearity == 'sigmoid' then
             layer:add(nn.Sigmoid())
@@ -48,94 +52,126 @@ function IIDCFNetwork:__init(options)
         -- local layer = nn.Sequential()
         -- layer:add(nn.Linear(options.input_dimension, options.input_dimension))
         -- layer:add(nn.Tanh())
-
+        print(layer)
         table.insert(self.functions, layer)
     end
 
-    for i = 1, #self.functions do
-        print(self.functions[i])
-    end
+    -- for i = 1, #self.functions do
+    --     print(self.functions[i])
+    -- end
 
     self.mixtable = nn.MixtureTable()
+    self.criterion = nn.ExpectationCriterion(nn.MSECriterion())
+    self.jointable = nn.JoinTable(2)
     self:reset()
 end
 
 function IIDCFNetwork:step(input)
-    local next_input = input:clone()
-    local step_trace = {}
-    for substep = 1, self.steps_per_output do
-        local controller_output = self.controller:step(next_input)
-        -- print(vis.simplestr(controller_output[1]))
+    local controller_metadata, input_vector = table.unpack(input)
+    local controller_input = self.jointable:forward(input):clone()
+    local controller_output = self.controller:step(controller_input):clone()
+    -- print(controller_input)
+    print(vis.simplestr(controller_output[1]))
 
-        local function_outputs = {}
-        for i = 1, #self.functions do
-            local function_output = self.functions[i]:forward(next_input):clone()
-            table.insert(function_outputs, function_output)
-        end
+    -- local function_outputs = torch.zeros(#self.functions, input_vector:size(2))
+    local function_outputs = {}
+    for i = 1, #self.functions do
+        local function_output = self.functions[i]:forward(input_vector):clone()
+        table.insert(function_outputs, function_output)
 
-        local current_output = self.mixtable:forward({controller_output, function_outputs}):clone()
-        local substep_trace = {
-                input = next_input:clone(),
-                output = current_output:clone(),
-            }
-        table.insert(step_trace, substep_trace)
-        next_input = current_output:clone()
+        -- local function_output = self.functions[i]:forward(input_vector):clone()[1]
+        -- function_outputs[i] = function_output:clone()
     end
-
+    -- local current_output = {controller_output, function_outputs}
+    -- print({controller_output[1], function_outputs})
+    local current_output = self.mixtable:forward({controller_output, function_outputs}):clone()
+    local step_trace = {
+            input = {
+                    input[1]:clone(),
+                    input[2]:clone(),
+                },
+            -- output = current_output:clone(),
+            output = current_output:clone(),
+        }
     table.insert(self.trace, step_trace)
+    return current_output
+end
+
+function IIDCFNetwork:forward(input, target)
+    self:reset()
+    -- print(input)
+    local next_input = input
+    for t = 1, self.steps_per_output do
+        next_input = self:step(next_input):clone()
+    end
 
     self.output = next_input
     return self.output
 end
 
-function IIDCFNetwork:forward(input)
-    self:reset()
-    return self:step(input)
-end
+function IIDCFNetwork:backstep(t, gradOutput)
+    -- print(self.trace)
+    local step_trace = self.trace[t]
+    local step_input = step_trace.input
 
-function IIDCFNetwork:backstep(input, gradOutput)
-    local timestep = #self.trace
-    local step_trace = self.trace[timestep]
-    if step_trace[1].input:norm() ~= input:norm() then
-        error("IIDCFNetwork:backstep has been called in the wrong order.")
+    local controller_metadata, input_vector = table.unpack(step_input)
+    -- local grad_probs, grad_outputs = table.unpack(gradOutput)
+    local controller_input = self.jointable:forward(input)
+
+    local controller_step_trace = self.controller.trace[#self.controller.trace]
+    local controller_output = controller_step_trace[#controller_step_trace].output
+
+    -- forward the functions to guarantee correct operation
+    -- local function_outputs = torch.zeros(#self.functions, input_vector:size(2))
+    local function_outputs = {}
+    for i = 1, #self.functions do
+        table.insert(function_outputs, self.functions[i]:forward(input_vector):clone())
+        -- local function_output = self.functions[i]:forward(input_vector):clone()[1]
+        -- function_outputs[i] = function_output
     end
-    local current_gradOutput = gradOutput
+    -- print({controller_output, function_outputs})
+    self.mixtable:forward({controller_output, function_outputs})
 
-    for substep = self.steps_per_output, 1, -1 do
-        local substep_trace = step_trace[substep]
-        local substep_input = substep_trace.input
+    local grad_table = self.mixtable:backward(
+            {controller_output, function_outputs},
+            gradOutput)
 
-        local controller_step_trace = self.controller.trace[#self.controller.trace]
-        local controller_output = controller_step_trace[#controller_step_trace].output
+    local grad_controller_output = grad_table[1]
+    local grad_function_outputs = grad_table[2]
 
-        -- forward the functions to guarantee correct operation
-        local function_outputs = {}
-        for i = 1, #self.functions do
-            table.insert(function_outputs, self.functions[i]:forward(substep_input):clone())
-        end
-        self.mixtable:forward({controller_output, function_outputs})
+    local grad_controller_input = self.controller:backstep(controller_input, grad_controller_output):clone()
+    local grad_input_table = self.jointable:backward(step_input, grad_controller_input)
 
-        local grad_table = self.mixtable:backward(
-                {controller_output, function_outputs},
-                current_gradOutput)
+    -- ^ yields a table of form {grad_controller_metadata, grad_input_vector}
 
-        local grad_controller_output = grad_table[1]
-        local grad_function_outputs = grad_table[2]
-
-        current_gradOutput = self.controller:backstep(nil, grad_controller_output):clone()
-        for i = 1, #self.functions do
-            current_gradOutput = current_gradOutput + self.functions[i]:backward(substep_input, grad_function_outputs[i])
-        end
+    -- print(grad_outputs)
+    for i = 1, #self.functions do
+        -- add the gradients from each of the functions to grad_input_vector
+        grad_input_table[2] = grad_input_table[2] + self.functions[i]:backward(input_vector, grad_function_outputs[i])
     end
-    self.gradInput = current_gradOutput
-
-    -- pop this timestep from our stack
-    self.trace[timestep] = nil
-    return self.gradInput
+    return grad_input_table
 end
 
 function IIDCFNetwork:backward(input, gradOutput)
-    return self:backstep(input, gradOutput)
+    -- print("input\n", input)
+    -- print("target\n", target)
+    local timestep = #self.trace
+    if self.trace[1].input[2]:norm() ~= input[2]:norm() then
+        error("IIDCFNetwork:backstep has been called in the wrong order.")
+    end
+    -- local gradOutput = self.criterion:backward(self.trace[timestep].output, target)
+    -- print("gradOutput\n", gradOutput)
+    local current_gradOutput = gradOutput
+
+    for t = self.steps_per_output, 1, -1 do
+        current_gradOutput = self:backstep(t, current_gradOutput)
+
+        -- pop this timestep from our stack
+        -- self.trace[t] = nil
+    end
+    self.gradInput = current_gradOutput
+
+    return self.gradInput
 end
 
 function IIDCFNetwork:reset(batch_size)

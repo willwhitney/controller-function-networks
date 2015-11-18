@@ -13,17 +13,18 @@ print("Using seed " .. seed)
 opt = {
     input_dimension = 10,
     encoded_dimension = 5,
-    batch_size = 5,
-    seq_length = 2,
+    num_primitives = 8,
+    batch_size = 1,
+    seq_length = 1,
     num_functions = 4,
     rnn_size = 5,
     controller_num_layers = 2,
     controller_dropout = 0,
-    steps_per_output = 5,
+    steps_per_output = 1,
     controller_nonlinearity = 'sigmoid',
     function_nonlinearity = 'sigmoid',
 }
-mode = 'multistep'
+mode = 'expected'
 
 
 function finiteDiff(model, input, target, p, gp)
@@ -171,6 +172,47 @@ if mode == 'step' then
 elseif mode == 'functions' then
     require 'CFNetwork_multistep'
     model = nn.CFNetwork({
+        input_dimension = opt.input_dimension,
+        num_functions = opt.num_functions,
+        controller_units_per_layer = opt.rnn_size,
+        controller_num_layers = opt.controller_num_layers,
+        controller_dropout = opt.controller_dropout,
+        steps_per_output = opt.steps_per_output,
+        controller_nonlinearity = opt.controller_nonlinearity,
+        function_nonlinearity = opt.function_nonlinearity,
+        encoded_dimension = opt.encoded_dimension,
+    })
+    p, gp = model:getFunctionParameters()
+    p_backup = p:clone()
+    gp_backup = gp:clone()
+
+    criterion = nn.MSECriterion()
+    model:evaluate()
+    model:reset()
+
+    inputs = {}
+    targets = {}
+    for i = 1, opt.seq_length do
+        inputs[i] = torch.rand(opt.batch_size, opt.input_dimension)
+        targets[i] = torch.zeros(opt.batch_size, opt.input_dimension)
+    end
+
+    outputs = model:forward(inputs)
+    grad_outputs = {}
+    for i = opt.seq_length, 1, -1 do
+        loss = criterion:forward(outputs[i], targets[i])
+        grad_outputs[i] = criterion:backward(outputs[i], targets[i])
+    end
+
+    model:backward(inputs, grad_outputs)
+    backprop_grad = gp:clone()
+
+    model:reset()
+    fd_grad = finiteDiff(model, inputs, targets, p, gp)
+
+elseif mode == 'expected' then
+    require 'SamplingIID'
+    model = nn.SamplingCFNetwork({
         input_dimension = opt.input_dimension,
         num_functions = opt.num_functions,
         controller_units_per_layer = opt.rnn_size,
