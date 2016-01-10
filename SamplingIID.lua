@@ -43,6 +43,8 @@ function SamplingCFNetwork:__init(options)
             layer:add(nn.Tanh())
         elseif options.function_nonlinearity == 'relu' then
             layer:add(nn.ReLU())
+        elseif options.function_nonlinearity == 'prelu' then
+            layer:add(nn.PReLU())
         elseif options.function_nonlinearity == 'none' then
 
         else
@@ -61,7 +63,11 @@ function SamplingCFNetwork:__init(options)
     -- end
 
     self.mixtable = nn.MixtureTable()
-    self.criterion = nn.ExpectationCriterion(nn.MSECriterion())
+    if options.criterion == 'L2' then
+        self.criterion = nn.ExpectationCriterion(nn.MSECriterion())
+    elseif options.criterion == 'L1' then
+        self.criterion = nn.ExpectationCriterion(nn.AbsCriterion())
+    end
     self.jointable = nn.JoinTable(2)
     self:reset()
 end
@@ -98,7 +104,9 @@ function SamplingCFNetwork:forward(input, target)
     for t = 1, self.steps_per_output do
         next_input = self:step(next_input)
     end
-
+    -- print(next_input, target)
+    self.output_value = {next_input[1]:clone(), next_input[2]:clone()}
+    -- print(self.output_value)
     self.output = self.criterion:forward(next_input, target)
     return self.output
 end

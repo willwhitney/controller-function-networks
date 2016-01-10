@@ -1,8 +1,8 @@
 require 'nn'
 require 'Controller'
-require 'SharpeningController'
 require 'ExpectationCriterion'
 require 'Constant'
+require 'PowTable'
 require 'vis'
 
 --[[
@@ -15,26 +15,19 @@ for each :forward, but does not backpropagate over multiple inputs.
 IIDCFNetwork, parent = torch.class('nn.IIDCFNetwork', 'nn.Module')
 
 function IIDCFNetwork:__init(options)
-    -- if options.controller_nonlinearity ~= 'softmax' then
-    --     print("Overriding controller nonlinearity with softmax.")
+    -- if options.controller_nonlinearity ~= 'none' then
+    --     print("Overriding controller nonlinearity with none.")
     -- end
-    if options.controller_type == 'sharpening' then
-        self.controller = nn.SharpeningController(
-            options.input_dimension, -- needs to look at the whole input
-            options.num_functions, -- outputs a weighting over all the functions
+    -- options.controller_nonlinearity = 'none'
+    self.controller = nn.Controller(
+            -- look at the whole input
+            options.input_dimension,
+            -- outputs a weighting over all the functions, plus the sharpening param
+            options.num_functions + 1,
             options.controller_units_per_layer,
             options.controller_num_layers,
             options.controller_dropout,
-            options.controller_nonlinearity )
-    else
-        self.controller = nn.Controller(
-            options.input_dimension, -- needs to look at the whole input
-            options.num_functions, -- outputs a weighting over all the functions
-            options.controller_units_per_layer,
-            options.controller_num_layers,
-            options.controller_dropout,
-            options.controller_nonlinearity )
-    end
+            'none' )
 
     self.steps_per_output = options.steps_per_output or 1
 
@@ -73,6 +66,41 @@ function IIDCFNetwork:__init(options)
     --     print(self.functions[i])
     -- end
 
+    weightNonlinearity = nn.Identity
+    if options.controller_nonlinearity == 'sigmoid' then
+        weightNonlinearity = nn.Sigmoid
+    elseif options.controller_nonlinearity == 'tanh' then
+        weightNonlinearity = nn.Tanh
+    elseif options.controller_nonlinearity == 'relu' then
+        weightNonlinearity = nn.ReLU
+    elseif options.controller_nonlinearity == 'prelu' then
+        weightNonlinearity = nn.PReLU
+    elseif options.controller_nonlinearity == 'softmax' then
+        weightNonlinearity = nn.SoftMax
+    else
+        error("Must specify a nonlinearity for the controller.")
+    end
+
+    self.postController = nn.Sequential()
+        local postParallel = nn.ConcatTable()
+
+        local weightPipe = nn.Sequential()
+            weightPipe:add(nn.SplitTable(2))
+            weightPipe:add(nn.NarrowTable(2, options.num_functions))
+            weightPipe:add(nn.JoinTable(1))
+            weightPipe:add(weightNonlinearity())
+        postParallel:add(weightPipe)
+
+        local sharpeningPipe = nn.Sequential()
+            sharpeningPipe:add(nn.SplitTable(2))
+            sharpeningPipe:add(nn.SelectTable(1))
+            sharpeningPipe:add(nn.SoftPlus())
+        postParallel:add(sharpeningPipe)
+
+
+    self.postController:add(postParallel)
+    self.postController:add(nn.PowTable())
+
     self.mixtable = nn.MixtureTable()
     self.criterion = nn.ExpectationCriterion(nn.MSECriterion())
     self.jointable = nn.JoinTable(2)
@@ -84,6 +112,9 @@ function IIDCFNetwork:step(input)
     local controller_input = self.jointable:forward(input):clone()
     local controller_output = self.controller:step(controller_input):clone()
     print(controller_output)
+    controller_output = self.postController:forward(controller_output)
+    print(controller_output)
+    controller_output = controller_output:reshape(1, controller_output:size(1))
     print(vis.simplestr(controller_output[1]))
 
     local temp = torch.zeros(#self.functions, input_vector:size(2))
@@ -135,6 +166,7 @@ function IIDCFNetwork:backstep(t, gradOutput)
 
     local controller_step_trace = self.controller.trace[#self.controller.trace]
     local controller_output = controller_step_trace[#controller_step_trace].output
+    controller_output = self.postController:forward(controller_output)
 
     -- forward the functions to guarantee correct operation
     -- local function_outputs = torch.zeros(#self.functions, input_vector:size(2))
@@ -152,6 +184,7 @@ function IIDCFNetwork:backstep(t, gradOutput)
             gradOutput)
 
     local grad_controller_output = grad_table[1]
+    grad_controller_output = self.postController:backward(grad_controller_output)
     local grad_function_outputs = grad_table[2]
 
     local grad_controller_input = self.controller:backstep(controller_input, grad_controller_output):clone()

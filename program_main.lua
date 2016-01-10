@@ -2,7 +2,8 @@ require 'nn'
 require 'gnuplot'
 require 'optim'
 require 'nngraph'
-require 'tools'
+require 'distributions'
+
 require 'vis'
 
 require 'utils'
@@ -24,11 +25,14 @@ cmd:option('-num_primitives',8,'how many primitives are in this data')
 cmd:option('-rnn_size', 10, 'size of LSTM internal state')
 cmd:option('-layer_size', 10, 'size of the layers')
 cmd:option('-num_layers', 1, 'number of layers in the LSTM')
-cmd:option('-model', 'cf', 'cf or lstm')
+cmd:option('-model', 'cf', 'cf or sampling')
+cmd:option('-criterion', 'L2', 'L2 or L1')
+
 
 
 -- optimization
 cmd:option('-learning_rate',2e-3,'learning rate')
+cmd:option('-function_learning_rate',1e-2,'learning rate')
 cmd:option('-learning_rate_decay',0.97,'learning rate decay')
 cmd:option('-learning_rate_decay_after',5,'in number of epochs, when to start decaying the learning rate')
 cmd:option('-decay_rate',0.95,'decay rate for rmsprop')
@@ -39,7 +43,7 @@ cmd:option('-steps_per_output',1,'number of feedback steps to run per output')
 cmd:option('-num_functions',8,'number of function layers to create')
 
 cmd:option('-controller_nonlinearity','softmax','nonlinearity for output of controller. Sets the range of the weights.')
-cmd:option('-function_nonlinearity','relu','nonlinearity for functions. sets range of function output')
+cmd:option('-function_nonlinearity','prelu','nonlinearity for functions. sets range of function output')
 -- cmd:option('-num_functions',65,'number of function layers to create')
 
 
@@ -94,7 +98,7 @@ local split_sizes = {opt.train_frac, opt.val_frac, test_frac}
 -- create the data loader class
 loader = ProgramBatchLoader.create(opt.data_file, opt.batch_size, split_sizes)
 
-local params, grad_params
+-- local params, grad_params
 if opt.import ~= '' then
     checkpoint = torch.load(opt.import)
     model = checkpoint.model
@@ -127,19 +131,36 @@ else
                 steps_per_output = opt.steps_per_output,
                 controller_nonlinearity = opt.controller_nonlinearity,
                 function_nonlinearity = opt.function_nonlinearity,
+                controller_type = 'normal',
             })
-        -- require 'SamplingIID'
-        -- model = nn.SamplingCFNetwork({
-        --         input_dimension = opt.num_primitives + 10,
-        --         encoded_dimension = 10,
-        --         num_functions = opt.num_functions,
-        --         controller_units_per_layer = opt.rnn_size,
-        --         controller_num_layers = opt.num_layers,
-        --         controller_dropout = opt.dropout,
-        --         steps_per_output = opt.steps_per_output,
-        --         controller_nonlinearity = opt.controller_nonlinearity,
-        --         function_nonlinearity = opt.function_nonlinearity,
-        --     })
+    elseif opt.model == 'sharpening' then
+        require 'IIDCF_meta'
+        model = nn.IIDCFNetwork({
+                input_dimension = opt.num_primitives + 10,
+                encoded_dimension = 10,
+                num_functions = opt.num_functions,
+                controller_units_per_layer = opt.rnn_size,
+                controller_num_layers = opt.num_layers,
+                controller_dropout = opt.dropout,
+                steps_per_output = opt.steps_per_output,
+                controller_nonlinearity = opt.controller_nonlinearity,
+                function_nonlinearity = opt.function_nonlinearity,
+                controller_type = 'sharpening',
+            })
+    elseif opt.model == 'sampling' then
+        require 'SamplingIID'
+        model = nn.SamplingCFNetwork({
+                input_dimension = opt.num_primitives + 10,
+                encoded_dimension = 10,
+                num_functions = opt.num_functions,
+                controller_units_per_layer = opt.rnn_size,
+                controller_num_layers = opt.num_layers,
+                controller_dropout = opt.dropout,
+                steps_per_output = opt.steps_per_output,
+                controller_nonlinearity = opt.controller_nonlinearity,
+                function_nonlinearity = opt.function_nonlinearity,
+                criterion = opt.criterion,
+            })
     elseif opt.model == 'lstm' then
         require 'SteppableLSTM'
         model = nn.SteppableLSTM(vocab_size, vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
@@ -147,9 +168,16 @@ else
         error("Model type not valid.")
     end
 
-    params, grad_params = model:getParameters()
-    params:uniform(-0.08, 0.08) -- small numbers uniform
+    -- params, grad_params = model:getParameters()
+    -- params:uniform(-0.08, 0.08) -- small numbers uniform
 end
+
+controller_params, controller_grad_params = model:getControllerParameters()
+function_params, function_grad_params = model:getFunctionParameters()
+controller_params:uniform(-0.9, 0.9) -- small numbers uniform
+function_params:uniform(0.0, 0.2) -- small numbers uniform
+
+stupid = nn.Linear(10, 10)
 
 criterion = nn.MSECriterion()
 one_hot = OneHot(opt.num_primitives)
@@ -208,9 +236,12 @@ end
 function feval(x)
     -- profiler:start('batch')
     if x ~= params then
+        error("Params not equal to given feval argument.")
         params:copy(x)
     end
-    grad_params:zero()
+    -- grad_params:zero()
+    controller_grad_params:zero()
+    function_grad_params:zero()
     model:reset()
 
     ------------------ get minibatch -------------------
@@ -224,27 +255,75 @@ function feval(x)
     ------------------- forward pass -------------------
     model:training() -- make sure we are in correct mode (this is cheap, sets flag)
 
-    print("Primitive:", x[1][1])
+    local primitive_index = x[1][1]
+    print("Primitive:", primitive_index)
+    local input, output, primitive, loss
 
-    local primitive = one_hot:forward(x[1])
-    local input = {primitive, x[2]}
-    -- print(input)
-    -- local loss = model:forward(input, y)
-    local output = model:forward(input)
-    -- print(x[2][1])
-    print(vis.simplestr(x[2][1]))
+    primitive = one_hot:forward(x[1])
+
+    if opt.model == 'sampling' then
+        input = {primitive, x[2]}
+        -- print(input)
+        loss = model:forward(input, y)
+        local probabilities, outputs = table.unpack(model.output_value)
+        output = torch.zeros(outputs[1]:size())
+        print(outputs)
+        for i = 1, outputs:size(1) do
+            output = output + outputs[i] * probabilities[1][i]
+        end
+        output = output:reshape(1, output:size(1))
+        -- output = model:forward(input)
+        -- print(x[2][1])
+
+        -- loss = criterion:forward(output, y)
+        -- grad_output = criterion:backward(output, y):clone()
+
+        ------------------ backward pass -------------------
+        model:backward(input, y)
+    else
+
+    -- if primitive_index == 1 then
+    --     output = stupid:forward(x[2]):clone()
+    --     loss = criterion:forward(output, y)
+    --     grad_output = criterion:backward(output, y):clone()
+    --
+    --     stupid:zeroGradParameters()
+    --     stupid:backward(x[2], grad_output)
+    --     stupid:updateParameters(10 * opt.learning_rate)
+    -- else
+        primitive = one_hot:forward(x[1])
+        input = {primitive, x[2]}
+        -- print(input)
+        -- local loss = model:forward(input, y)
+        output = model:forward(input)
+        -- print(x[2][1])
+
+        loss = criterion:forward(output, y)
+        grad_output = criterion:backward(output, y):clone()
+
+        ------------------ backward pass -------------------
+        model:backward(input, grad_output)
+    end
+        -- model:backward(input, y)
+        -- grad_params:clamp(-opt.grad_clip, opt.grad_clip)
+        controller_grad_params:clamp(-opt.grad_clip, opt.grad_clip)
+        function_grad_params:clamp(-opt.grad_clip, opt.grad_clip)
+        -- grad_params:mul(-1)
+        -- profiler:lap('batch')
+
+    -- end
+    -- print(grad_params:norm())
+
+    -- print(controller_grad_params:norm())
+    -- print(function_grad_params:norm())
+
+    -- local p, gp = model:getParameters()
+    --
+    -- print(gp:max() - gp:min())
+    -- print(gp:norm())
     print(vis.simplestr(output[1]))
+    print(vis.simplestr(y[1]))
 
-
-    loss = criterion:forward(output, y)
-    grad_output = criterion:backward(output, y):clone()
-
-    ------------------ backward pass -------------------
-    model:backward(input, grad_output)
-    -- model:backward(input, y)
-    grad_params:clamp(-opt.grad_clip, opt.grad_clip)
-    -- grad_params:mul(-1)
-    -- profiler:lap('batch')
     collectgarbage()
     return loss, grad_params
 end
@@ -252,17 +331,29 @@ end
 -- [[
 train_losses = {}
 val_losses = {}
-local optim_state = {learningRate = opt.learning_rate, alpha = opt.decay_rate}
+local controller_optim_state = {learningRate = opt.learning_rate, alpha = opt.decay_rate}
+local function_optim_state = {learningRate = 10 * opt.learning_rate, alpha = opt.decay_rate}
 local iterations = opt.max_epochs * loader.ntrain
 local iterations_per_epoch = loader.ntrain
 local loss0 = nil
 
 for i = 1, iterations do
-    print('\n')
+    print('')
     local epoch = i / loader.ntrain
 
     local timer = torch.Timer()
-    local _, loss = optim.rmsprop(feval, params, optim_state)
+
+    local loss, _ = feval(params)
+    function feval_controller()
+        return loss, controller_grad_params
+    end
+    function feval_function()
+        return loss, function_grad_params
+    end
+
+    local _, loss = optim.rmsprop(feval_controller, controller_params, controller_optim_state)
+    local _, loss = optim.rmsprop(feval_function, function_params, function_optim_state)
+
     local time = timer:time().real
 
     -- profiler:printAll()
@@ -274,12 +365,14 @@ for i = 1, iterations do
     if i % loader.ntrain == 0 and opt.learning_rate_decay < 1 then
         if epoch >= opt.learning_rate_decay_after then
             local decay_factor = opt.learning_rate_decay
-            optim_state.learningRate = optim_state.learningRate * decay_factor -- decay it
-            print('decayed learning rate by a factor ' .. decay_factor .. ' to ' .. optim_state.learningRate)
+            controller_optim_state.learningRate = controller_optim_state.learningRate * decay_factor -- decay it
+            function_optim_state.learningRate = function_optim_state.learningRate * decay_factor -- decay it
+            print('decayed controller learning rate by a factor ' .. decay_factor .. ' to ' .. controller_optim_state.learningRate)
+            print('decayed function learning rate by a factor ' .. decay_factor .. ' to ' .. function_optim_state.learningRate)
         end
     end
 
-    -- -- every now and then or on last iteration
+    -- every now and then or on last iteration
     -- if i % opt.eval_val_every == 0 or i == iterations then
     --     -- evaluate loss on validation data
     --     local val_loss = eval_split(2) -- 2 = validation
@@ -312,7 +405,7 @@ for i = 1, iterations do
     -- end
 
     if i % opt.print_every == 0 then
-        print(string.format("%d/%d (epoch %.3f), train_loss = %6.8f, grad/param norm = %6.4e, time/batch = %.2fs", i, iterations, epoch, train_loss, grad_params:norm() / params:norm(), time))
+        print(string.format("%d/%d (epoch %.3f), train_loss = %6.8f, controller grad/param norm = %6.4e, function grad/param norm = %6.4e, time/batch = %.2fs", i, iterations, epoch, train_loss, controller_grad_params:norm() / controller_params:norm(), function_grad_params:norm() / function_params:norm(), time))
     end
 
     if i % 10 == 0 then collectgarbage() end
