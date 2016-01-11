@@ -75,6 +75,14 @@ cmd:text()
 opt = cmd:parse(arg)
 torch.manualSeed(opt.seed)
 
+if opt.name == 'net' then
+    local name = ''
+    for k, v in ipairs(arg) do
+        name = name .. tostring(v) .. '_'
+    end
+    opt.name = name
+end
+
 local savedir = string.format('%s/%s', opt.checkpoint_dir, opt.name)
 os.execute('mkdir -p '..savedir)
 os.execute(string.format('rm %s/*', savedir))
@@ -296,7 +304,7 @@ function feval(x)
     end
 
     ------------------- forward pass -------------------
-    model:training() -- make sure we are in correct mode (this is cheap, sets flag)
+    model:training() -- make sure we are in correct mode
 
     local primitive_index = x[1][1]
     print("Primitive:", primitive_index)

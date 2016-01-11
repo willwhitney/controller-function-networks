@@ -61,7 +61,7 @@ function ScheduledSharpeningController:__init(
     self.decoder = nn.Sequential()
     self.decoder:add(nn.Linear(self.num_units_per_layer, self.output_dimension))
     self.decoder:add(weightNonlinearity())
-    self.decoder:add(nn.Noise(noise))
+    -- self.decoder:add(nn.Noise(noise))
 
     -- local postParallel = nn.ConcatTable()
     --
@@ -84,6 +84,7 @@ function ScheduledSharpeningController:__init(
 
     self.decoder:add(nn.ScheduledWeightSharpener())
     self.decoder:add(nn.Renormalize())
+    -- self.decoder:add(nn.Normalize(1, 1e-100))
 
     -- if nonlinearity == 'sigmoid' then
     --     self.decoder:add(nn.Sigmoid())
