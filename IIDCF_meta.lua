@@ -1,6 +1,7 @@
 require 'nn'
 require 'Controller'
 require 'SharpeningController'
+require 'ScheduledSharpeningController'
 require 'ExpectationCriterion'
 require 'Constant'
 require 'vis'
@@ -26,6 +27,15 @@ function IIDCFNetwork:__init(options)
             options.controller_num_layers,
             options.controller_dropout,
             options.controller_nonlinearity )
+    elseif options.controller_type == 'scheduled_sharpening' then
+        self.controller = nn.ScheduledSharpeningController(
+            options.input_dimension, -- needs to look at the whole input
+            options.num_functions, -- outputs a weighting over all the functions
+            options.controller_units_per_layer,
+            options.controller_num_layers,
+            options.controller_dropout,
+            options.controller_nonlinearity,
+            options.controller_noise )
     else
         self.controller = nn.Controller(
             options.input_dimension, -- needs to look at the whole input
@@ -83,8 +93,8 @@ function IIDCFNetwork:step(input)
     local controller_metadata, input_vector = table.unpack(input)
     local controller_input = self.jointable:forward(input):clone()
     local controller_output = self.controller:step(controller_input):clone()
-    print(controller_output)
-    print(vis.simplestr(controller_output[1]))
+    -- print(controller_output)
+    print('weights:', vis.simplestr(controller_output[1]))
 
     local temp = torch.zeros(#self.functions, input_vector:size(2))
     local function_outputs = {}

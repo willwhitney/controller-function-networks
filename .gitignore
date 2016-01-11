@@ -8,3 +8,4 @@ data/
 slurm_logs/
 slurm_scripts/
 networks/
+logs

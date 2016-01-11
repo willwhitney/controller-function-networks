@@ -1,20 +1,23 @@
 require 'nn'
 require 'nngraph'
 
-require 'PowTable'
+require 'ScheduledWeightSharpener'
+require 'Noise'
+require 'Renormalize'
 LSTM = require 'LSTM'
 KarpathyLSTM = require 'KarpathyLSTM'
 
-SharpeningController, parent = torch.class('nn.SharpeningController', 'nn.Module')
+ScheduledSharpeningController, parent = torch.class('nn.ScheduledSharpeningController', 'nn.Module')
 
 
-function SharpeningController:__init(
+function ScheduledSharpeningController:__init(
             input_dimension,
             output_dimension,
             num_units_per_layer,
             num_layers,
             dropout,
-            nonlinearity )
+            nonlinearity,
+            noise )
     -- print("input size:", input_dimension)
     self.input_dimension = input_dimension
     self.output_dimension = output_dimension
@@ -33,10 +36,10 @@ function SharpeningController:__init(
             KarpathyLSTM.lstm(self.num_units_per_layer, self.num_units_per_layer, 1, dropout))
     end
 
-    -- if nonlinearity ~= 'sigmoid' then
-    --     print("Warning: overriding controller nonlinearity with sigmoid.")
-    --     nonlinearity = 'sigmoid'
-    -- end
+    if nonlinearity ~= 'sigmoid' then
+        print("Warning: overriding controller nonlinearity with sigmoid.")
+        nonlinearity = 'sigmoid'
+    end
 
     weightNonlinearity = nn.Identity
     if nonlinearity == 'sigmoid' then
@@ -56,28 +59,31 @@ function SharpeningController:__init(
 
     -- last layer smushes back down to output domain, then outputs (0-1) weights
     self.decoder = nn.Sequential()
-    self.decoder:add(nn.Linear(self.num_units_per_layer, self.output_dimension + 1))
-    local postParallel = nn.ConcatTable()
+    self.decoder:add(nn.Linear(self.num_units_per_layer, self.output_dimension))
+    self.decoder:add(weightNonlinearity())
+    self.decoder:add(nn.Noise(noise))
 
-    -- make a tensor with output_dimension components
-    local weightPipe = nn.Sequential()
-        weightPipe:add(nn.SplitTable(2))
-        weightPipe:add(nn.NarrowTable(2, self.output_dimension))
-        weightPipe:add(nn.JoinTable(1))
-        weightPipe:add(weightNonlinearity())
-    postParallel:add(weightPipe)
+    -- local postParallel = nn.ConcatTable()
+    --
+    -- -- make a tensor with output_dimension components
+    -- local weightPipe = nn.Sequential()
+    --     weightPipe:add(nn.SplitTable(2))
+    --     weightPipe:add(nn.NarrowTable(2, self.output_dimension))
+    --     weightPipe:add(nn.JoinTable(1))
+    --     weightPipe:add(weightNonlinearity())
+    -- postParallel:add(weightPipe)
+    --
+    -- -- pull out the last component for the exponent
+    -- local sharpeningPipe = nn.Sequential()
+    --     sharpeningPipe:add(nn.SplitTable(2))
+    --     sharpeningPipe:add(nn.SelectTable(1))
+    --     sharpeningPipe:add(nn.SoftPlus())
+    -- postParallel:add(sharpeningPipe)
+    --
+    -- self.decoder:add(postParallel)
 
-    -- pull out the last component for the exponent
-    local sharpeningPipe = nn.Sequential()
-        sharpeningPipe:add(nn.SplitTable(2))
-        sharpeningPipe:add(nn.SelectTable(1))
-        sharpeningPipe:add(nn.SoftPlus())
-    postParallel:add(sharpeningPipe)
-
-
-    self.decoder:add(postParallel)
-    self.decoder:add(nn.PowTable())
-    self.decoder:add(nn.Normalize(1))
+    self.decoder:add(nn.ScheduledWeightSharpener())
+    self.decoder:add(nn.Renormalize())
 
     -- if nonlinearity == 'sigmoid' then
     --     self.decoder:add(nn.Sigmoid())
@@ -101,7 +107,7 @@ function SharpeningController:__init(
     self:reset()
 end
 
-function SharpeningController:reset(batch_size)
+function ScheduledSharpeningController:reset(batch_size)
     batch_size = batch_size or opt.batch_size
     self.trace = {}
     self.backtrace = {}
@@ -128,7 +134,7 @@ end
 
 -- take one timestep with this input
 -- if using the model this way, make sure to call reset() between sequences
-function SharpeningController:step(input)
+function ScheduledSharpeningController:step(input)
     local current_input = input:clone()
     local step_trace = {}
     local output
@@ -176,7 +182,7 @@ function SharpeningController:step(input)
 end
 
 -- step forward on a table of inputs representing the sequence
-function SharpeningController:forward(inputs)
+function ScheduledSharpeningController:forward(inputs)
     self:reset()
     local outputs = {}
     for i = 1, #inputs do
@@ -188,7 +194,7 @@ end
 
 
 -- backpropagate on a table of inputs and a table of grad_outputs
-function SharpeningController:backward(inputs, grad_outputs)
+function ScheduledSharpeningController:backward(inputs, grad_outputs)
     local current_gradOutput
 
     -- make a set of zero gradients for the timestep after the last one
@@ -205,7 +211,7 @@ end
 
 -- this should only be used after the system has been run to completion
 -- at that point, it should be called in the reverse order of computation
-function SharpeningController:backstep(input, gradOutput)
+function ScheduledSharpeningController:backstep(input, gradOutput)
     local timestep = #self.trace
 
     -- if this is the last timestep, and it hasn't been done already,
@@ -277,7 +283,7 @@ function SharpeningController:backstep(input, gradOutput)
     return current_gradOutput
 end
 
-function SharpeningController:buildFinalGradient()
+function ScheduledSharpeningController:buildFinalGradient()
     -- build a set of dummy (zero) gradients for a timestep that didn't happen
     local last_gradient = {}
     for i = 1, #self.network do
@@ -299,14 +305,14 @@ function SharpeningController:buildFinalGradient()
     return last_gradient
 end
 
-function SharpeningController:updateParameters(learningRate)
+function ScheduledSharpeningController:updateParameters(learningRate)
     for i = 1, #self.network do
         self.network[i]:updateParameters(learningRate)
     end
     self.decoder:updateParameters(learningRate)
 end
 
-function SharpeningController:zeroGradParameters()
+function ScheduledSharpeningController:zeroGradParameters()
     for i = 1, #self.network do
         self.network[i]:zeroGradParameters()
     end
@@ -314,7 +320,7 @@ function SharpeningController:zeroGradParameters()
 end
 
 -- taken from nn.Container
-function SharpeningController:parameters()
+function ScheduledSharpeningController:parameters()
     local function tinsert(to, from)
         if type(from) == 'table' then
             for i=1,#from do
@@ -341,28 +347,28 @@ function SharpeningController:parameters()
     return w,gw
 end
 
-function SharpeningController:training()
+function ScheduledSharpeningController:training()
     for i = 1, #self.network do
         self.network[i]:training()
     end
     self.decoder:training()
 end
 
-function SharpeningController:evaluate()
+function ScheduledSharpeningController:evaluate()
     for i = 1, #self.network do
         self.network[i]:evaluate()
     end
     self.decoder:evaluate()
 end
 
-function SharpeningController:cuda()
+function ScheduledSharpeningController:cuda()
     for i = 1, #self.network do
         self.network[i]:cuda()
     end
     self.decoder:cuda()
 end
 
-function SharpeningController:float()
+function ScheduledSharpeningController:float()
     for i = 1, #self.network do
         self.network[i]:float()
     end

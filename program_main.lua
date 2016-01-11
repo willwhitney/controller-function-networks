@@ -26,8 +26,7 @@ cmd:option('-rnn_size', 10, 'size of LSTM internal state')
 cmd:option('-layer_size', 10, 'size of the layers')
 cmd:option('-num_layers', 1, 'number of layers in the LSTM')
 cmd:option('-model', 'cf', 'cf or sampling')
-cmd:option('-criterion', 'L2', 'L2 or L1')
-
+cmd:option('-criterion', 'L2', 'L2 or L1') -- used for sampling
 
 
 -- optimization
@@ -37,6 +36,8 @@ cmd:option('-learning_rate_decay',0.97,'learning rate decay')
 cmd:option('-learning_rate_decay_after',5,'in number of epochs, when to start decaying the learning rate')
 cmd:option('-decay_rate',0.95,'decay rate for rmsprop')
 cmd:option('-dropout',0,'dropout for regularization, used after each RNN hidden layer. 0 = no dropout')
+cmd:option('-noise',0,'variance of noise added to the weights before sharpening')
+
 -- cmd:option('-seq_length',50,'number of timesteps to unroll for')
 
 cmd:option('-steps_per_output',1,'number of feedback steps to run per output')
@@ -147,6 +148,21 @@ else
                 function_nonlinearity = opt.function_nonlinearity,
                 controller_type = 'sharpening',
             })
+    elseif opt.model == 'scheduled_sharpening' then
+        require 'IIDCF_meta'
+        model = nn.IIDCFNetwork({
+                input_dimension = opt.num_primitives + 10,
+                encoded_dimension = 10,
+                num_functions = opt.num_functions,
+                controller_units_per_layer = opt.rnn_size,
+                controller_num_layers = opt.num_layers,
+                controller_dropout = opt.dropout,
+                steps_per_output = opt.steps_per_output,
+                controller_nonlinearity = opt.controller_nonlinearity,
+                function_nonlinearity = opt.function_nonlinearity,
+                controller_type = 'scheduled_sharpening',
+                controller_noise = opt.noise,
+            })
     elseif opt.model == 'sampling' then
         require 'SamplingIID'
         model = nn.SamplingCFNetwork({
@@ -215,19 +231,46 @@ function eval_split(split_index, max_batches)
             x = x:float():cuda()
             y = y:float():cuda()
         end
-        -- forward pass
-        for t=1,opt.seq_length do
-            local input = one_hot:forward(x[{{}, t}])
 
-            local prediction = model:step(input)
-            -- print("Input:", vis.simplestr(input[1]))
-            -- print("Prediction:", vis.simplestr(prediction[1]))
-            loss = loss + criterion:forward(prediction, y[{{}, t}])
+        model:reset()
+        local primitive_index = x[1][1]
+        local input, output, primitive
+        primitive = one_hot:forward(x[1])
+
+        local step_loss = 0
+
+        oldprint = print
+        print = function() end
+        if opt.model == 'sampling' then
+            input = {primitive, x[2]}
+            -- print(input)
+            step_loss = model:forward(input, y)
+            local probabilities, outputs = table.unpack(model.output_value)
+            output = torch.zeros(outputs[1]:size())
+
+            for output_index = 1, outputs:size(1) do
+                output = output + outputs[output_index] * probabilities[1][output_index]
+            end
+            output = output:reshape(1, output:size(1))
+        else
+            primitive = one_hot:forward(x[1])
+            input = {primitive, x[2]}
+            output = model:forward(input)
+            step_loss = criterion:forward(output, y)
         end
-        print(i .. '/' .. n .. '...')
+        print = oldprint
+
+        if i % 100 == 0 then
+            print("Primitive:", primitive_index, "Loss:", step_loss,
+                    "Weights:", vis.simplestr(model.controller.output[1]))
+            print(vis.simplestr(output[1]))
+            print(vis.simplestr(y[1]))
+        end
+
+        loss = loss + step_loss
     end
 
-    loss = loss / opt.seq_length / n
+    loss = loss / n
     return loss
 end
 
@@ -337,9 +380,10 @@ local iterations = opt.max_epochs * loader.ntrain
 local iterations_per_epoch = loader.ntrain
 local loss0 = nil
 
-for i = 1, iterations do
+for step = 1, iterations do
+    iteration = step
     print('')
-    local epoch = i / loader.ntrain
+    epoch = step / loader.ntrain
 
     local timer = torch.Timer()
 
@@ -359,10 +403,10 @@ for i = 1, iterations do
     -- profiler:printAll()
 
     local train_loss = loss[1] -- the loss is inside a list, pop it
-    train_losses[i] = train_loss
+    train_losses[step] = train_loss
 
     -- exponential learning rate decay
-    if i % loader.ntrain == 0 and opt.learning_rate_decay < 1 then
+    if step % loader.ntrain == 0 and opt.learning_rate_decay < 1 then
         if epoch >= opt.learning_rate_decay_after then
             local decay_factor = opt.learning_rate_decay
             controller_optim_state.learningRate = controller_optim_state.learningRate * decay_factor -- decay it
@@ -372,43 +416,43 @@ for i = 1, iterations do
         end
     end
 
-    -- every now and then or on last iteration
-    -- if i % opt.eval_val_every == 0 or i == iterations then
-    --     -- evaluate loss on validation data
-    --     local val_loss = eval_split(2) -- 2 = validation
-    --     val_losses[i] = val_loss
-    --     print(string.format('[epoch %.3f] Validation loss: %6.8f', epoch, val_loss))
-    --
-    --
-    --
-    --     local model_file = string.format('%s/epoch%.2f_%.4f.t7', savedir, epoch, val_loss)
-    --     print('saving checkpoint to ' .. model_file)
-    --     local checkpoint = {}
-    --     checkpoint.model = model
-    --     checkpoint.opt = opt
-    --     checkpoint.train_losses = train_losses
-    --     checkpoint.val_loss = val_loss
-    --     checkpoint.val_losses = val_losses
-    --     checkpoint.i = i
-    --     checkpoint.epoch = epoch
-    --     checkpoint.vocab = loader.vocab_mapping
-    --     torch.save(model_file, checkpoint)
-    --
-    --
-    --
-    --     local val_loss_log = io.open(savedir ..'/val_loss.txt', 'a')
-    --     val_loss_log:write(val_loss .. "\n")
-    --     val_loss_log:flush()
-    --     val_loss_log:close()
-    --     -- os.execute("say 'Checkpoint saved.'")
-    --     -- os.execute(string.format("say 'Epoch %.2f'", epoch))
-    -- end
-
-    if i % opt.print_every == 0 then
-        print(string.format("%d/%d (epoch %.3f), train_loss = %6.8f, controller grad/param norm = %6.4e, function grad/param norm = %6.4e, time/batch = %.2fs", i, iterations, epoch, train_loss, controller_grad_params:norm() / controller_params:norm(), function_grad_params:norm() / function_params:norm(), time))
+    if step % opt.print_every == 0 then
+        print(string.format("%d/%d (epoch %.3f), train_loss = %6.8f, controller grad/param norm = %6.4e, function grad/param norm = %6.4e, time/batch = %.2fs", step, iterations, epoch, train_loss, controller_grad_params:norm() / controller_params:norm(), function_grad_params:norm() / function_params:norm(), time))
     end
 
-    if i % 10 == 0 then collectgarbage() end
+    -- every now and then or on last iteration
+    if step % opt.eval_val_every == 0 or step == iterations then
+        -- evaluate loss on validation data
+        local val_loss = eval_split(2) -- 2 = validation
+        val_losses[step] = val_loss
+        print(string.format('[epoch %.3f] Validation loss: %6.8f', epoch, val_loss))
+
+
+
+        local model_file = string.format('%s/epoch%.2f_%.4f.t7', savedir, epoch, val_loss)
+        print('saving checkpoint to ' .. model_file)
+        local checkpoint = {}
+        checkpoint.model = model
+        checkpoint.opt = opt
+        checkpoint.train_losses = train_losses
+        checkpoint.val_loss = val_loss
+        checkpoint.val_losses = val_losses
+        checkpoint.step = step
+        checkpoint.epoch = epoch
+        checkpoint.vocab = loader.vocab_mapping
+        torch.save(model_file, checkpoint)
+
+
+
+        local val_loss_log = io.open(savedir ..'/val_loss.txt', 'a')
+        val_loss_log:write(val_loss .. "\n")
+        val_loss_log:flush()
+        val_loss_log:close()
+        -- os.execute("say 'Checkpoint saved.'")
+        -- os.execute(string.format("say 'Epoch %.2f'", epoch))
+    end
+
+    if step % 10 == 0 then collectgarbage() end
 
     -- handle early stopping if things are going really bad
     if loss[1] ~= loss[1] then
