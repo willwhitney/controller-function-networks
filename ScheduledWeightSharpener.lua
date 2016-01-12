@@ -9,7 +9,7 @@ local ScheduledWeightSharpener, parent = torch.class('nn.ScheduledWeightSharpene
 
 function ScheduledWeightSharpener:__init()
     parent.__init(self)
-    self.slope = 1
+    self.slope = opt.sharpening_rate
 end
 
 function ScheduledWeightSharpener:getP(iter)

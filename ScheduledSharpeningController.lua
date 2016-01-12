@@ -3,6 +3,7 @@ require 'nngraph'
 
 require 'ScheduledWeightSharpener'
 require 'Noise'
+require 'Print'
 require 'Renormalize'
 LSTM = require 'LSTM'
 KarpathyLSTM = require 'KarpathyLSTM'
@@ -61,7 +62,10 @@ function ScheduledSharpeningController:__init(
     self.decoder = nn.Sequential()
     self.decoder:add(nn.Linear(self.num_units_per_layer, self.output_dimension))
     self.decoder:add(weightNonlinearity())
-    -- self.decoder:add(nn.Noise(noise))
+
+    if noise > 0 then
+        self.decoder:add(nn.Noise(noise))
+    end
 
     -- local postParallel = nn.ConcatTable()
     --
@@ -83,8 +87,11 @@ function ScheduledSharpeningController:__init(
     -- self.decoder:add(postParallel)
 
     self.decoder:add(nn.ScheduledWeightSharpener())
-    self.decoder:add(nn.Renormalize())
-    -- self.decoder:add(nn.Normalize(1, 1e-100))
+    -- self.decoder:add(nn.Renormalize())
+    -- self.decoder:add(nn.Print("Before Normalize"))
+    self.decoder:add(nn.AddConstant(1e-20))
+    self.decoder:add(nn.Normalize(1, 1e-100))
+    -- self.decoder:add(nn.Print("After Decoder"))
 
     -- if nonlinearity == 'sigmoid' then
     --     self.decoder:add(nn.Sigmoid())

@@ -29,6 +29,9 @@ cmd:option('-model', 'cf', 'cf or sampling')
 cmd:option('-criterion', 'L2', 'L2 or L1') -- used for sampling
 
 
+cmd:option('-sharpening_rate', 10, 'the slope (per 10K iterations) for the sharpening exponent') -- used for sampling
+
+
 -- optimization
 cmd:option('-learning_rate',2e-3,'learning rate')
 cmd:option('-function_learning_rate',1e-2,'learning rate')
@@ -62,7 +65,7 @@ cmd:option('-import', '', 'initialize network parameters from checkpoint at this
 -- bookkeeping
 cmd:option('-seed',123,'torch manual random number generator seed')
 cmd:option('-print_every',1,'how many steps/minibatches between printing out the loss')
-cmd:option('-eval_val_every',1000,'every how many iterations should we evaluate on validation data?')
+cmd:option('-eval_val_every',2000,'every how many iterations should we evaluate on validation data?')
 -- cmd:option('-eval_val_every',10,'every how many iterations should we evaluate on validation data?')
 cmd:option('-checkpoint_dir', 'networks', 'output directory where checkpoints get written')
 cmd:option('-name','net','filename to autosave the checkpont to. Will be inside checkpoint_dir/')
@@ -95,6 +98,17 @@ for key, val in pairs(opt) do
 end
 f:flush()
 f:close()
+
+local logfile = io.open(savedir .. '/output.log', 'w')
+true_print = print
+print = function(...)
+    for i, v in ipairs{...} do
+        true_print(v)
+        logfile:write(tostring(v))
+    end
+    logfile:write("\n")
+    logfile:flush()
+end
 
 if opt.gpuid >= 0 then
     require 'cutorch'
