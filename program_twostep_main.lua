@@ -19,14 +19,14 @@ cmd:text()
 cmd:text('Options')
 
 -- data
-cmd:option('-data_file','data/primitives.json','dataset')
+cmd:option('-data_file','data/twostep.json','dataset')
 cmd:option('-num_primitives',8,'how many primitives are in this data')
 
 -- model params
 cmd:option('-rnn_size', 10, 'size of LSTM internal state')
 cmd:option('-layer_size', 10, 'size of the layers')
 cmd:option('-num_layers', 1, 'number of layers in the LSTM')
-cmd:option('-model', 'cf', 'cf or sampling')
+cmd:option('-model', 'scheduled_sharpening', 'cf or sampling')
 cmd:option('-criterion', 'L2', 'L2 or L1') -- used for sampling
 
 
@@ -45,7 +45,7 @@ cmd:option('-noise',0,'variance of noise added to the weights before sharpening'
 
 -- cmd:option('-seq_length',50,'number of timesteps to unroll for')
 
-cmd:option('-steps_per_output',1,'number of feedback steps to run per output')
+cmd:option('-steps_per_output',2,'number of feedback steps to run per output')
 cmd:option('-num_functions',8,'number of function layers to create')
 
 cmd:option('-controller_nonlinearity','softmax','nonlinearity for output of controller. Sets the range of the weights.')
@@ -83,7 +83,7 @@ torch.manualSeed(opt.seed)
 if opt.name == 'net' then
     local name = ''
     for k, v in ipairs(arg) do
-        name = name .. tostring(v) .. '_'
+        name = name .. string.gsub(tostring(v), '/', '.') .. '_'
     end
     opt.name = name .. os.date("%b_%d_%H_%M_%S")
 end
@@ -124,120 +124,76 @@ local split_sizes = {opt.train_frac, opt.val_frac, test_frac}
 -- create the data loader class
 loader = ProgramBatchLoader.create(opt.data_file, opt.batch_size, split_sizes)
 
--- local params, grad_params
-if opt.import ~= '' then
+if opt.model == 'cf' then
     require 'IIDCF_meta'
-    checkpoint = torch.load(opt.import)
-    model = checkpoint.model
-
-    controller_params, controller_grad_params = model:getControllerParameters()
-    function_params, function_grad_params = model:getFunctionParameters()
-
-    -- for ScheduledWeightSharpener
-    iteration = checkpoint.step
-
-    -- local vocab_compatible = true
-    -- for c,i in pairs(checkpoint.vocab) do
-    --     if not vocab[c] == i then
-    --         vocab_compatible = false
-    --     end
-    -- end
-    -- assert(vocab_compatible, 'error, the character vocabulary for this dataset and the one in the saved checkpoint are not the same. This is trouble.')
-    -- -- overwrite model settings based on checkpoint to ensure compatibility
-    -- print('overwriting rnn_size=' .. checkpoint.opt.rnn_size .. ', num_layers=' .. checkpoint.opt.num_layers .. checkpoint.opt.steps_per_output .. ', steps_per_output=' .. checkpoint.opt.num_functions .. ', num_functions=' .. ' based on the checkpoint.')
-
-    -- if checkpoint.opt.model == 'cf' then
-    --     require 'IIDCF_meta'
-    -- elseif checkpoint.opt.model == 'sharpening' then
-    --     require 'IIDCF_meta'
-    -- elseif checkpoint.opt.model == 'scheduled_sharpening' then
-    --     require 'IIDCF_meta'
-    -- elseif checkpoint.opt.model == 'sampling' then
-    --     require 'SamplingIID'
-    -- elseif checkpoint.opt.model == 'lstm' then
-    --     require 'SteppableLSTM'
-    -- else
-    --     error("Model type not valid.")
-    -- end
-
-    -- opt.rnn_size = checkpoint.opt.rnn_size
-    -- opt.num_layers = checkpoint.opt.num_layers
-    -- opt.steps_per_output = checkpoint.opt.steps_per_output
-    -- opt.num_functions = checkpoint.opt.num_functions
-
+    model = nn.IIDCFNetwork({
+            input_dimension = opt.num_primitives + 10,
+            encoded_dimension = 10,
+            num_functions = opt.num_functions,
+            controller_units_per_layer = opt.rnn_size,
+            controller_num_layers = opt.num_layers,
+            controller_dropout = opt.dropout,
+            steps_per_output = opt.steps_per_output,
+            controller_nonlinearity = opt.controller_nonlinearity,
+            function_nonlinearity = opt.function_nonlinearity,
+            controller_type = 'normal',
+        })
+elseif opt.model == 'sharpening' then
+    require 'IIDCF_meta'
+    model = nn.IIDCFNetwork({
+            input_dimension = opt.num_primitives + 10,
+            encoded_dimension = 10,
+            num_functions = opt.num_functions,
+            controller_units_per_layer = opt.rnn_size,
+            controller_num_layers = opt.num_layers,
+            controller_dropout = opt.dropout,
+            steps_per_output = opt.steps_per_output,
+            controller_nonlinearity = opt.controller_nonlinearity,
+            function_nonlinearity = opt.function_nonlinearity,
+            controller_type = 'sharpening',
+        })
+elseif opt.model == 'scheduled_sharpening' then
+    require 'IIDCF_meta'
+    model = nn.IIDCFNetwork({
+            input_dimension = opt.num_primitives + 10,
+            encoded_dimension = 10,
+            num_functions = opt.num_functions,
+            controller_units_per_layer = opt.rnn_size,
+            controller_num_layers = opt.num_layers,
+            controller_dropout = opt.dropout,
+            steps_per_output = opt.steps_per_output,
+            controller_nonlinearity = opt.controller_nonlinearity,
+            function_nonlinearity = opt.function_nonlinearity,
+            controller_type = 'scheduled_sharpening',
+            controller_noise = opt.noise,
+        })
+elseif opt.model == 'sampling' then
+    require 'SamplingIID'
+    model = nn.SamplingCFNetwork({
+            input_dimension = opt.num_primitives + 10,
+            encoded_dimension = 10,
+            num_functions = opt.num_functions,
+            controller_units_per_layer = opt.rnn_size,
+            controller_num_layers = opt.num_layers,
+            controller_dropout = opt.dropout,
+            steps_per_output = opt.steps_per_output,
+            controller_nonlinearity = opt.controller_nonlinearity,
+            function_nonlinearity = opt.function_nonlinearity,
+            criterion = opt.criterion,
+        })
 else
-    if opt.model == 'cf' then
-        require 'IIDCF_meta'
-        model = nn.IIDCFNetwork({
-                input_dimension = opt.num_primitives + 10,
-                encoded_dimension = 10,
-                num_functions = opt.num_functions,
-                controller_units_per_layer = opt.rnn_size,
-                controller_num_layers = opt.num_layers,
-                controller_dropout = opt.dropout,
-                steps_per_output = opt.steps_per_output,
-                controller_nonlinearity = opt.controller_nonlinearity,
-                function_nonlinearity = opt.function_nonlinearity,
-                controller_type = 'normal',
-            })
-    elseif opt.model == 'sharpening' then
-        require 'IIDCF_meta'
-        model = nn.IIDCFNetwork({
-                input_dimension = opt.num_primitives + 10,
-                encoded_dimension = 10,
-                num_functions = opt.num_functions,
-                controller_units_per_layer = opt.rnn_size,
-                controller_num_layers = opt.num_layers,
-                controller_dropout = opt.dropout,
-                steps_per_output = opt.steps_per_output,
-                controller_nonlinearity = opt.controller_nonlinearity,
-                function_nonlinearity = opt.function_nonlinearity,
-                controller_type = 'sharpening',
-            })
-    elseif opt.model == 'scheduled_sharpening' then
-        require 'IIDCF_meta'
-        model = nn.IIDCFNetwork({
-                input_dimension = opt.num_primitives + 10,
-                encoded_dimension = 10,
-                num_functions = opt.num_functions,
-                controller_units_per_layer = opt.rnn_size,
-                controller_num_layers = opt.num_layers,
-                controller_dropout = opt.dropout,
-                steps_per_output = opt.steps_per_output,
-                controller_nonlinearity = opt.controller_nonlinearity,
-                function_nonlinearity = opt.function_nonlinearity,
-                controller_type = 'scheduled_sharpening',
-                controller_noise = opt.noise,
-            })
-    elseif opt.model == 'sampling' then
-        require 'SamplingIID'
-        model = nn.SamplingCFNetwork({
-                input_dimension = opt.num_primitives + 10,
-                encoded_dimension = 10,
-                num_functions = opt.num_functions,
-                controller_units_per_layer = opt.rnn_size,
-                controller_num_layers = opt.num_layers,
-                controller_dropout = opt.dropout,
-                steps_per_output = opt.steps_per_output,
-                controller_nonlinearity = opt.controller_nonlinearity,
-                function_nonlinearity = opt.function_nonlinearity,
-                criterion = opt.criterion,
-            })
-    elseif opt.model == 'lstm' then
-        require 'SteppableLSTM'
-        model = nn.SteppableLSTM(vocab_size, vocab_size, opt.rnn_size, opt.num_layers, opt.dropout)
-    else
-        error("Model type not valid.")
-    end
-
-    controller_params, controller_grad_params = model:getControllerParameters()
-    function_params, function_grad_params = model:getFunctionParameters()
-    controller_params:uniform(-0.9, 0.9) -- small numbers uniform
-    function_params:uniform(0.0, 0.2) -- small numbers uniform
-
-    -- params, grad_params = model:getParameters()
-    -- params:uniform(-0.08, 0.08) -- small numbers uniform
+    error("Model type not valid.")
 end
+
+-- put the pretrained functions from the loaded model into the new model
+checkpoint = torch.load(opt.import)
+model.functions = checkpoint.model.functions
+
+controller_params, controller_grad_params = model:getControllerParameters()
+function_params, function_grad_params = model:getFunctionParameters()
+controller_params:uniform(-0.9, 0.9) -- small numbers uniform
+function_params:uniform(0.0, 0.2) -- small numbers uniform
+
 
 criterion = nn.MSECriterion()
 one_hot = OneHot(opt.num_primitives)
@@ -338,6 +294,9 @@ function feval(x)
         x = x:float():cuda()
         y = y:float():cuda()
     end
+    -- print("x: ", x)
+    -- print("x1: ", x[1])
+    -- print("x2: ", x[2])
 
     ------------------- forward pass -------------------
     model:training() -- make sure we are in correct mode
@@ -346,10 +305,12 @@ function feval(x)
     print("Primitive:", primitive_index)
     local input, output, primitive, loss
 
-    primitive = one_hot:forward(x[1])
+    primitive = one_hot:forward(x[1][1])
+    input = {primitive, x[2]}
+    -- print("primitive onehot: ", primitive)
 
     if opt.model == 'sampling' then
-        input = {primitive, x[2]}
+
         -- print(input)
         loss = model:forward(input, y)
         local probabilities, outputs = table.unpack(model.output_value)
@@ -374,8 +335,8 @@ function feval(x)
     --     grad_output = criterion:backward(output, y):clone()
     --
     -- else
-        primitive = one_hot:forward(x[1])
-        input = {primitive, x[2]}
+        -- primitive = one_hot:forward(x[1])
+        -- input = {primitive, x[2]}
         -- print(input)
         -- local loss = model:forward(input, y)
         output = model:forward(input)
@@ -507,4 +468,4 @@ for step = 1, iterations do
     --     break -- halt
     -- end
 end
---]]
+-- --]]

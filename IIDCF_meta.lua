@@ -2,7 +2,7 @@ require 'nn'
 require 'Controller'
 require 'SharpeningController'
 require 'ScheduledSharpeningController'
-require 'ExpectationCriterion'
+-- require 'ExpectationCriterion'
 require 'Constant'
 require 'vis'
 
@@ -84,13 +84,16 @@ function IIDCFNetwork:__init(options)
     -- end
 
     self.mixtable = nn.MixtureTable()
-    self.criterion = nn.ExpectationCriterion(nn.MSECriterion())
+    -- self.criterion = nn.ExpectationCriterion(nn.MSECriterion())
     self.jointable = nn.JoinTable(2)
     self:reset()
 end
 
 function IIDCFNetwork:step(input)
     local controller_metadata, input_vector = table.unpack(input)
+    print("step info: ")
+    print(controller_metadata)
+    print(input_vector)
     local controller_input = self.jointable:forward(input):clone()
     local controller_output = self.controller:step(controller_input):clone()
     -- print(controller_output)
@@ -122,12 +125,15 @@ function IIDCFNetwork:step(input)
     return current_output
 end
 
-function IIDCFNetwork:forward(input, target)
+function IIDCFNetwork:forward(input)
     self:reset()
-    -- print(input)
-    local next_input = input
+    local controller_metadata, input_vector = table.unpack(input)
+    -- print("input[1]: ", input[1])
+    local next_input = input_vector
     for t = 1, self.steps_per_output do
-        next_input = self:step(next_input):clone()
+        -- print("controller_metadata[t]: ", controller_metadata[t])
+        local step_controller_metadata = controller_metadata[t]:reshape(1, controller_metadata[t]:size(1))
+        next_input = self:step({step_controller_metadata, next_input}):clone()
     end
 
     self.output = next_input
@@ -156,7 +162,9 @@ function IIDCFNetwork:backstep(t, gradOutput)
     end
     -- print({controller_output, function_outputs})
     self.mixtable:forward({controller_output, function_outputs})
-
+    -- print("controller_output: ", controller_output)
+    -- print("function_outputs: ", function_outputs)
+    -- print("gradOutput: ", gradOutput)
     local grad_table = self.mixtable:backward(
             {controller_output, function_outputs},
             gradOutput)
@@ -189,7 +197,7 @@ function IIDCFNetwork:backward(input, gradOutput)
     local current_gradOutput = gradOutput
 
     for t = self.steps_per_output, 1, -1 do
-        current_gradOutput = self:backstep(t, current_gradOutput)
+        current_gradOutput = self:backstep(t, current_gradOutput)[2]
 
         -- pop this timestep from our stack
         -- self.trace[t] = nil
