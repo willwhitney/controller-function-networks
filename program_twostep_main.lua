@@ -81,7 +81,7 @@ opt = cmd:parse(arg)
 torch.manualSeed(opt.seed)
 
 if opt.name == 'net' then
-    local name = ''
+    local name = 'twostep_'
     for k, v in ipairs(arg) do
         name = name .. string.gsub(tostring(v), '/', '.') .. '_'
     end
@@ -186,8 +186,10 @@ else
 end
 
 -- put the pretrained functions from the loaded model into the new model
-checkpoint = torch.load(opt.import)
-model.functions = checkpoint.model.functions
+if opt.import ~= '' then
+    checkpoint = torch.load(opt.import)
+    model.functions = checkpoint.model.functions
+end
 
 controller_params, controller_grad_params = model:getControllerParameters()
 function_params, function_grad_params = model:getFunctionParameters()
@@ -235,14 +237,15 @@ function eval_split(split_index, max_batches)
         model:reset()
         local primitive_index = x[1][1]
         local input, output, primitive
-        primitive = one_hot:forward(x[1])
+        primitive = one_hot:forward(x[1][1])
+        input = {primitive, x[2]}
 
         local step_loss = 0
 
-        -- oldprint = print
-        -- print = function() end
+        oldprint = print
+        print = function() end
         if opt.model == 'sampling' then
-            input = {primitive, x[2]}
+            -- input = {primitive, x[2]}
             -- print(input)
             step_loss = model:forward(input, y)
             local probabilities, outputs = table.unpack(model.output_value)
@@ -253,12 +256,12 @@ function eval_split(split_index, max_batches)
             end
             output = output:reshape(1, output:size(1))
         else
-            primitive = one_hot:forward(x[1])
-            input = {primitive, x[2]}
+            -- primitive = one_hot:forward(x[1])
+            -- input = {primitive, x[2]}
             output = model:forward(input)
             step_loss = criterion:forward(output, y)
         end
-        -- print = oldprint
+        print = oldprint
 
         if i % 100 == 0 then
             print("Primitive: ", primitive_index, " Loss: ", step_loss,

@@ -91,9 +91,9 @@ end
 
 function IIDCFNetwork:step(input)
     local controller_metadata, input_vector = table.unpack(input)
-    print("step info: ")
-    print(controller_metadata)
-    print(input_vector)
+    -- print("step info: ")
+    -- print(controller_metadata)
+    -- print(input_vector)
     local controller_input = self.jointable:forward(input):clone()
     local controller_output = self.controller:step(controller_input):clone()
     -- print(controller_output)
