@@ -126,6 +126,7 @@ function IIDCFNetwork:step(input)
 end
 
 function IIDCFNetwork:forward(input)
+    -- print("forward")
     self:reset()
     local controller_metadata, input_vector = table.unpack(input)
     -- print("input[1]: ", input[1])
@@ -140,8 +141,17 @@ function IIDCFNetwork:forward(input)
     return self.output
 end
 
+function IIDCFNetwork:updateOutput(input)
+    return self:forward(input)
+end
+
+function IIDCFNetwork:updateGradInput(input, gradOutput)
+    return self:backward(input, gradOutput)
+end
+
 function IIDCFNetwork:backstep(t, gradOutput)
     -- print(self.trace)
+    print(t, gradOutput)
     local step_trace = self.trace[t]
     local step_input = step_trace.input
 
@@ -186,6 +196,8 @@ function IIDCFNetwork:backstep(t, gradOutput)
 end
 
 function IIDCFNetwork:backward(input, gradOutput)
+    -- print("backward")
+    self.gradInput = {torch.zeros(input[1]:size()), torch.zeros(input[2]:size())}
     -- print("input\n", input)
     -- print("target\n", target)
     local timestep = #self.trace
@@ -197,12 +209,14 @@ function IIDCFNetwork:backward(input, gradOutput)
     local current_gradOutput = gradOutput
 
     for t = self.steps_per_output, 1, -1 do
-        current_gradOutput = self:backstep(t, current_gradOutput)[2]
+        local current_gradInput = self:backstep(t, current_gradOutput)
+        current_gradOutput = current_gradInput[2]
+        self.gradInput[1][t] = current_gradInput[1]
 
         -- pop this timestep from our stack
         -- self.trace[t] = nil
     end
-    self.gradInput = current_gradOutput
+    self.gradInput[2] = current_gradOutput
 
     return self.gradInput
 end

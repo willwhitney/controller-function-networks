@@ -304,13 +304,19 @@ function feval(x)
     ------------------- forward pass -------------------
     model:training() -- make sure we are in correct mode
 
-    local primitive_index = x[1][1]
-    print("Primitive:", primitive_index)
+    local primitive_index = x[1][1]:clone()
+    primitive_index[1] = x[1][1][2]
+    primitive_index[2] = x[1][1][1]
+    -- print("Primitive:", primitive_index)
     local input, output, primitive, loss
 
     primitive = one_hot:forward(x[1][1])
     input = {primitive, x[2]}
+    -- print(input)
     -- print("primitive onehot: ", primitive)
+    -- print("input: ", x[2])
+    -- print("target: ", y)
+
 
     if opt.model == 'sampling' then
 
