@@ -27,10 +27,10 @@ cmd:option('-rnn_size', 10, 'size of LSTM internal state')
 cmd:option('-layer_size', 10, 'size of the layers')
 cmd:option('-num_layers', 1, 'number of layers in the LSTM')
 cmd:option('-model', 'cf', 'cf or sampling')
-cmd:option('-criterion', 'L2', 'L2 or L1') -- used for sampling
+cmd:option('-criterion', 'L2', 'L2 or L1') -- used for sampling only
 
 
-cmd:option('-sharpening_rate', 10, 'the slope (per 10K iterations) for the sharpening exponent') -- used for sampling
+cmd:option('-sharpening_rate', 10, 'the slope (per 10K iterations) for the sharpening exponent')
 
 
 -- optimization
@@ -207,6 +207,19 @@ else
                 controller_nonlinearity = opt.controller_nonlinearity,
                 function_nonlinearity = opt.function_nonlinearity,
                 controller_type = 'scheduled_sharpening',
+                controller_noise = opt.noise,
+            })
+    elseif opt.model == 'feedforward' then
+        require 'FF_IIDCF_meta'
+        model = nn.IIDCFNetwork({
+                input_dimension = opt.num_primitives + 10,
+                encoded_dimension = 10,
+                num_functions = opt.num_functions,
+                controller_units_per_layer = opt.rnn_size,
+                controller_num_layers = opt.num_layers,
+                controller_dropout = opt.dropout,
+                steps_per_output = opt.steps_per_output,
+                function_nonlinearity = opt.function_nonlinearity,
                 controller_noise = opt.noise,
             })
     elseif opt.model == 'sampling' then
@@ -415,7 +428,7 @@ end
 train_losses = {}
 val_losses = {}
 local controller_optim_state = {learningRate = opt.learning_rate, alpha = opt.decay_rate}
-local function_optim_state = {learningRate = 10 * opt.learning_rate, alpha = opt.decay_rate}
+local function_optim_state = {learningRate = opt.function_learning_rate, alpha = opt.decay_rate}
 local iterations = opt.max_epochs * loader.ntrain
 local iterations_per_epoch = loader.ntrain
 local loss0 = nil

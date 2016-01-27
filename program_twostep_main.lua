@@ -1,3 +1,4 @@
+
 require 'nn'
 require 'gnuplot'
 require 'optim'
@@ -30,7 +31,7 @@ cmd:option('-model', 'scheduled_sharpening', 'cf or sampling')
 cmd:option('-criterion', 'L2', 'L2 or L1') -- used for sampling
 
 
-cmd:option('-sharpening_rate', 10, 'the slope (per 10K iterations) for the sharpening exponent') -- used for sampling
+cmd:option('-sharpening_rate', 10, 'the slope (per 10K iterations) for the sharpening exponent')
 
 
 -- optimization
@@ -165,6 +166,19 @@ elseif opt.model == 'scheduled_sharpening' then
             controller_nonlinearity = opt.controller_nonlinearity,
             function_nonlinearity = opt.function_nonlinearity,
             controller_type = 'scheduled_sharpening',
+            controller_noise = opt.noise,
+        })
+elseif opt.model == 'feedforward' then
+    require 'FF_IIDCF_meta'
+    model = nn.IIDCFNetwork({
+            input_dimension = opt.num_primitives + 10,
+            encoded_dimension = 10,
+            num_functions = opt.num_functions,
+            controller_units_per_layer = opt.rnn_size,
+            controller_num_layers = opt.num_layers,
+            controller_dropout = opt.dropout,
+            steps_per_output = opt.steps_per_output,
+            function_nonlinearity = opt.function_nonlinearity,
             controller_noise = opt.noise,
         })
 elseif opt.model == 'sampling' then
@@ -307,7 +321,7 @@ function feval(x)
     local primitive_index = x[1][1]:clone()
     primitive_index[1] = x[1][1][2]
     primitive_index[2] = x[1][1][1]
-    -- print("Primitive:", primitive_index)
+    print("Primitive:", primitive_index)
     local input, output, primitive, loss
 
     primitive = one_hot:forward(x[1][1])
@@ -385,7 +399,7 @@ end
 train_losses = {}
 val_losses = {}
 local controller_optim_state = {learningRate = opt.learning_rate, alpha = opt.decay_rate}
-local function_optim_state = {learningRate = 10 * opt.learning_rate, alpha = opt.decay_rate}
+local function_optim_state = {learningRate = opt.function_learning_rate, alpha = opt.decay_rate}
 local iterations = opt.max_epochs * loader.ntrain
 local iterations_per_epoch = loader.ntrain
 local loss0 = nil
