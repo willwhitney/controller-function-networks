@@ -42,7 +42,7 @@ for noise in noise_options:
         for lr_decay in lr_decay_options:
             for function_lr in function_lr_options:
                 job = {
-                        "model": "ff-controller"
+                        "model": "ff-controller",
                         "noise": noise,
                         "sharpening_rate": sharpening_rate,
                         "learning_rate_decay": lr_decay,
