@@ -90,7 +90,7 @@ else:
     print "Starting jobs:"
 
 for job in jobs:
-    jobname = "twostep"
+    jobname = "onestep"
     flagstring = ""
     for flag in job:
         if isinstance(job[flag], bool):
@@ -113,7 +113,7 @@ for job in jobs:
             flagstring = flagstring + " -" + flag + " " + str(job[flag])
     flagstring = flagstring + " -name " + jobname
 
-    jobcommand = "th program_twostep_main.lua" + flagstring
+    jobcommand = "th program_main.lua" + flagstring
 
     print(jobcommand)
     if local and not dry_run:

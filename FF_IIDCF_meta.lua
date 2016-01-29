@@ -19,12 +19,12 @@ function IIDCFNetwork:__init(options)
     self.controller = nn.Sequential()
     self.controller:add(nn.Linear(options.input_dimension, options.num_functions))
     self.controller:add(nn.Sigmoid())
-    -- if options.controller_noise > 0 then
-    --     self.controller:add(nn.Noise(options.controller_noise))
-    -- end
-    -- self.controller:add(nn.ScheduledWeightSharpener())
-    -- self.controller:add(nn.AddConstant(1e-20))
-    -- self.controller:add(nn.Normalize(1, 1e-100))
+    if options.controller_noise > 0 then
+        self.controller:add(nn.Noise(options.controller_noise))
+    end
+    self.controller:add(nn.ScheduledWeightSharpener())
+    self.controller:add(nn.AddConstant(1e-20))
+    self.controller:add(nn.Normalize(1, 1e-100))
 
     self.steps_per_output = options.steps_per_output or 1
 

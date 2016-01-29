@@ -24,7 +24,6 @@ iteration = 100000
 opt = {}
 opt.sharpening_rate = 0
 opt.batch_size = 1
-iteration = 1
 
 primitives = 8
 timesteps = 10
