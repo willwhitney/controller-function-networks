@@ -168,7 +168,7 @@ elseif opt.model == 'scheduled_sharpening' then
             controller_type = 'scheduled_sharpening',
             controller_noise = opt.noise,
         })
-elseif opt.model == 'feedforward' then
+elseif opt.model == 'ff-controller' then
     require 'FF_IIDCF_meta'
     model = nn.IIDCFNetwork({
             input_dimension = opt.num_primitives + 10,
@@ -326,10 +326,6 @@ function feval(x)
 
     primitive = one_hot:forward(x[1][1])
     input = {primitive, x[2]}
-    -- print(input)
-    -- print("primitive onehot: ", primitive)
-    -- print("input: ", x[2])
-    -- print("target: ", y)
 
 
     if opt.model == 'sampling' then
@@ -343,51 +339,20 @@ function feval(x)
             output = output + outputs[i] * probabilities[1][i]
         end
         output = output:reshape(1, output:size(1))
-        -- output = model:forward(input)
-        -- print(x[2][1])
-
-        -- loss = criterion:forward(output, y)
-        -- grad_output = criterion:backward(output, y):clone()
 
         ------------------ backward pass -------------------
         model:backward(input, y)
     else
-
-    -- if primitive_index == 1 then
-    --     loss = criterion:forward(output, y)
-    --     grad_output = criterion:backward(output, y):clone()
-    --
-    -- else
-        -- primitive = one_hot:forward(x[1])
-        -- input = {primitive, x[2]}
-        -- print(input)
-        -- local loss = model:forward(input, y)
         output = model:forward(input)
-        -- print(x[2][1])
-
         loss = criterion:forward(output, y)
         grad_output = criterion:backward(output, y):clone()
 
         ------------------ backward pass -------------------
         model:backward(input, grad_output)
     end
-        -- model:backward(input, y)
-        -- grad_params:clamp(-opt.grad_clip, opt.grad_clip)
-        controller_grad_params:clamp(-opt.grad_clip, opt.grad_clip)
-        function_grad_params:clamp(-opt.grad_clip, opt.grad_clip)
-        -- grad_params:mul(-1)
-        -- profiler:lap('batch')
+    controller_grad_params:clamp(-opt.grad_clip, opt.grad_clip)
+    function_grad_params:clamp(-opt.grad_clip, opt.grad_clip)
 
-    -- end
-    -- print(grad_params:norm())
-
-    -- print(controller_grad_params:norm())
-    -- print(function_grad_params:norm())
-
-    -- local p, gp = model:getParameters()
-    --
-    -- print(gp:max() - gp:min())
-    -- print(gp:norm())
     print(vis.simplestr(output[1]))
     print(vis.simplestr(y[1]))
 

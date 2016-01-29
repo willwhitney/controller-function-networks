@@ -6,11 +6,15 @@ require 'distributions'
 
 require 'vis'
 
-require 'IIDCF_meta'
 require 'utils'
 require 'OneHot'
 require 'ExpectationCriterion'
 require 'ProperJacobian'
+
+require 'FF_IIDCF_meta'
+-- require 'IIDCF_meta'
+
+torch.manualSeed(1)
 
 -- parameters
 local precision = 1e-5
@@ -22,33 +26,34 @@ opt.sharpening_rate = 0
 opt.batch_size = 1
 iteration = 1
 
+primitives = 8
+timesteps = 10
+vector_size = 10
 
 -- define inputs and module
-local input = torch.rand(1,26)
+local input = torch.rand(1, primitives * timesteps + vector_size)
 
 local network = nn.Sequential()
 
 local par = nn.ConcatTable()
 
 primitivePipe = nn.Sequential()
-primitivePipe:add(nn.Narrow(2, 1, 16))
-primitivePipe:add(nn.Reshape(2, 8, false))
+primitivePipe:add(nn.Narrow(2, 1, primitives * timesteps))
+primitivePipe:add(nn.Reshape(timesteps, primitives, false))
 par:add(primitivePipe)
 
-par:add(nn.Narrow(2, 17, 10))
+par:add(nn.Narrow(2, primitives * timesteps, vector_size))
 network:add(par)
-
-print(network:forward(input))
 
 
 local module = nn.IIDCFNetwork({
-        input_dimension = 8 + 10,
-        encoded_dimension = 10,
-        num_functions = 8,
-        controller_units_per_layer = 10,
+        input_dimension = primitives + vector_size,
+        encoded_dimension = vector_size,
+        num_functions = primitives,
+        controller_units_per_layer = vector_size,
         controller_num_layers = 1,
         controller_dropout = 0,
-        steps_per_output = 2,
+        steps_per_output = timesteps,
         controller_nonlinearity = 'softmax',
         function_nonlinearity = 'prelu',
         controller_type = 'scheduled_sharpening',
@@ -56,10 +61,10 @@ local module = nn.IIDCFNetwork({
     })
 network:add(module)
 
-print(network)
-test_input = {torch.rand(2,8), torch.rand(1,10)}
-module:forward(test_input)
-print(module:backward(test_input, torch.rand(1,10)))
+-- print(network)
+-- test_input = {torch.rand(2,8), torch.rand(1,10)}
+-- module:forward(test_input)
+-- print(module:backward(test_input, torch.rand(1,10)))
 -- print(network:forward(input))
 
 

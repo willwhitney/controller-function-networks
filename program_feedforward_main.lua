@@ -147,10 +147,10 @@ end
 
 -- do fwd/bwd and return loss, grad_params
 function feval(x)
-    if x ~= params then
-        error("Params not equal to given feval argument.")
-        params:copy(x)
-    end
+    -- if x ~= params then
+    --     error("Params not equal to given feval argument.")
+    --     params:copy(x)
+    -- end
     grad_params:zero()
 
     ------------------ get minibatch -------------------

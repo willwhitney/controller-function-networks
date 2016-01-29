@@ -41,7 +41,7 @@ else:
     print "Starting jobs:"
 
 for job in jobs:
-    jobname = "feedforward_wide_"
+    jobname = "feedforward_wide"
     flagstring = ""
     for flag in job:
         if isinstance(job[flag], bool):

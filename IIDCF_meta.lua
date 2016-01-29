@@ -151,7 +151,7 @@ end
 
 function IIDCFNetwork:backstep(t, gradOutput)
     -- print(self.trace)
-    print(t, gradOutput)
+    -- print(t, gradOutput)
     local step_trace = self.trace[t]
     local step_input = step_trace.input
 

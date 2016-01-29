@@ -209,7 +209,7 @@ else
                 controller_type = 'scheduled_sharpening',
                 controller_noise = opt.noise,
             })
-    elseif opt.model == 'feedforward' then
+    elseif opt.model == 'ff-controller' then
         require 'FF_IIDCF_meta'
         model = nn.IIDCFNetwork({
                 input_dimension = opt.num_primitives + 10,
@@ -296,8 +296,8 @@ function eval_split(split_index, max_batches)
 
         local step_loss = 0
 
-        -- oldprint = print
-        -- print = function() end
+        oldprint = print
+        print = function() end
         if opt.model == 'sampling' then
             input = {primitive, x[2]}
             -- print(input)
@@ -315,7 +315,7 @@ function eval_split(split_index, max_batches)
             output = model:forward(input)
             step_loss = criterion:forward(output, y)
         end
-        -- print = oldprint
+        print = oldprint
 
         if i % 100 == 0 then
             print("Primitive: ", primitive_index, " Loss: ", step_loss,
