@@ -8,6 +8,14 @@ import copy
 import pprint
 from matplotlib import gridspec
 
+import argparse
+
+parser = argparse.ArgumentParser(description='Plot dem results.')
+parser.add_argument('--name', default='default')
+args = parser.parse_args()
+
+output_dir = "reports/" + args.name
+
 pp = pprint.PrettyPrinter(indent=4)
 
 def mean(l):
@@ -117,8 +125,8 @@ lengths = [len(per_option_mean_losses[option]) for option in per_option_mean_los
 gs = gridspec.GridSpec(1, len(per_option_mean_losses), width_ratios=lengths)
 
 
-if not os.path.exists("reports"):
-    os.makedirs("reports")
+if not os.path.exists(output_dir):
+    os.makedirs(output_dir)
 
 for option in per_option_mean_losses:
     option_values = per_option_mean_losses[option].keys()
@@ -150,7 +158,7 @@ for option in per_option_mean_losses:
     # fig.subplots_adjust(left = 0)
     seaborn.plt.tight_layout()
 
-    seaborn.plt.savefig("reports/" + option + ".png")
+    seaborn.plt.savefig(output_dir + "/" + option + ".png")
     seaborn.plt.close()
     # fig.savefig("report_" + option + ".png")
 
