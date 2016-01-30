@@ -12,6 +12,8 @@ import argparse
 
 parser = argparse.ArgumentParser(description='Plot dem results.')
 parser.add_argument('--name', default='default')
+parser.add_argument('--keep_losers', default=false)
+parser.add_argument('--loser_threshold', default=1)
 args = parser.parse_args()
 
 output_dir = "reports/" + args.name
@@ -67,6 +69,17 @@ for network_name in networks:
         new_networks[network_name] = network
 
 networks = new_networks
+
+if not args.keep_losers:
+    new_networks = {}
+    for network_name in networks:
+        network = networks[network_name]
+        if network['losses'] > args.loser_threshold:
+            print("Network's loss is too high. Excluding: " + network_name)
+        else:
+            new_networks[network_name] = network
+
+    networks = new_networks
 
 same_options = copy.deepcopy(networks[networks.keys()[0]]['options'])
 diff_options = []
@@ -135,7 +148,7 @@ for option in per_option_mean_losses:
 
     # print(option_values)
     # print(option_value_losses)
-    fig = seaborn.plt.figure(figsize=(20,15))
+    fig = seaborn.plt.figure(figsize=(30,15))
     fig.add_subplot()
 
     # fig.subplots_adjust(right = 1000)
