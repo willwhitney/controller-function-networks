@@ -12,7 +12,7 @@ import argparse
 
 parser = argparse.ArgumentParser(description='Plot dem results.')
 parser.add_argument('--name', default='default')
-parser.add_argument('--keep_losers', default=false)
+parser.add_argument('--keep_losers', default=False)
 parser.add_argument('--loser_threshold', default=1)
 args = parser.parse_args()
 
