@@ -23,6 +23,7 @@ def mean(l):
 
 networks = {}
 for name in sys.stdin:
+    print(name)
     network_name = name.strip()
     # print(network_name)
     opt_path = "networks/" + network_name + "/opt.txt"
@@ -146,6 +147,7 @@ for option in per_option_mean_losses:
     g = seaborn.barplot(x=option_values, y=option_value_losses)
     g.set(title=option)
     g.set_xticklabels(option_values, rotation=25, ha='right')
+    g.set_yscale('log')
 
     # fig.subplots_adjust(right = 1000)
     # fig.subplots_adjust(top = 1000000)
