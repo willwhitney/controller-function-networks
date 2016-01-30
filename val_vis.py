@@ -74,7 +74,7 @@ if not args.keep_losers:
     new_networks = {}
     for network_name in networks:
         network = networks[network_name]
-        if network['losses'] > args.loser_threshold:
+        if network['losses'][-1] > args.loser_threshold:
             print("Network's loss is too high. Excluding: " + network_name)
         else:
             new_networks[network_name] = network
