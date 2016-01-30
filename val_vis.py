@@ -75,7 +75,7 @@ if not args.keep_losers:
     for network_name in networks:
         network = networks[network_name]
         if network['losses'][-1] > args.loser_threshold:
-            print("Network's loss is too high. Excluding: " + network_name)
+            print("Network's loss is too high: " + network['losses'][-1] + ". Excluding: " + network_name)
         else:
             new_networks[network_name] = network
 
@@ -148,7 +148,7 @@ for option in per_option_mean_losses:
 
     # print(option_values)
     # print(option_value_losses)
-    fig = seaborn.plt.figure(figsize=(30,15))
+    fig = seaborn.plt.figure(figsize=(30,20))
     fig.add_subplot()
 
     # fig.subplots_adjust(right = 1000)
@@ -158,7 +158,7 @@ for option in per_option_mean_losses:
 
     g = seaborn.barplot(x=option_values, y=option_value_losses)
     g.set(title=option)
-    g.set_xticklabels(option_values, rotation=25, ha='right')
+    g.set_xticklabels(option_values, rotation=90, ha='right')
     g.set_yscale('log')
 
     # fig.subplots_adjust(right = 1000)
