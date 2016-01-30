@@ -1,4 +1,5 @@
-# import numpy as np
+import numpy as np
+import pandas as pd
 # from matplotlib import pyplot as plt
 import seaborn
 
@@ -75,7 +76,7 @@ if not args.keep_losers:
     for network_name in networks:
         network = networks[network_name]
         if network['losses'][-1] > args.loser_threshold:
-            print("Network's loss is too high: " + network['losses'][-1] + ". Excluding: " + network_name)
+            print("Network's loss is too high: " + str(network['losses'][-1]) + ". Excluding: " + network_name)
         else:
             new_networks[network_name] = network
 
@@ -132,56 +133,42 @@ for option in per_option_loss_lists:
 
     per_option_mean_losses[option] = per_value_mean_losses
 
-# pp.pprint(per_option_mean_losses)
+per_option_last_losses = {}
+for option in per_option_loss_lists:
+    per_value_last_losses = {}
+    for option_value in per_option_loss_lists[option]:
+        loss_lists = per_option_loss_lists[option][option_value]
+        per_value_last_losses[option_value] = [losses[-1] for losses in loss_lists]
 
-lengths = [len(per_option_mean_losses[option]) for option in per_option_mean_losses]
-gs = gridspec.GridSpec(1, len(per_option_mean_losses), width_ratios=lengths)
+    per_option_last_losses[option] = per_value_last_losses
 
 
 if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
-for option in per_option_mean_losses:
-    option_values = per_option_mean_losses[option].keys()
-    # print([value for value in option_values])
-    option_value_losses = [per_option_mean_losses[option][value] for value in option_values]
+for option in per_option_last_losses:
 
-    # print(option_values)
-    # print(option_value_losses)
-    fig = seaborn.plt.figure(figsize=(30,20))
+    fig = seaborn.plt.figure(figsize=(15,10))
     fig.add_subplot()
 
-    # fig.subplots_adjust(right = 1000)
-    # fig.subplots_adjust(top = 1000000)
-    # fig.subplots_adjust(left = 0)
-    # fig.subplots_adjust(bottom = -100000)
+    df = pd.DataFrame(columns=["option", "option_value", "loss"])
+    i = 0
+    for option_value in per_option_last_losses[option]:
+        for value in per_option_last_losses[option][option_value]:
+            df.loc[i] = [option, option_value, value]
+            i += 1
 
-    g = seaborn.barplot(x=option_values, y=option_value_losses)
+    # seaborn.set(font_scale=0.5)
+    print(df)
+    g = seaborn.swarmplot(data=df, x="option_value", y="loss")
+    for item in g.get_xticklabels():
+        item.set_fontsize(5)
+
+
+    seaborn.plt.xticks(rotation=90)
     g.set(title=option)
-    g.set_xticklabels(option_values, rotation=90, ha='right')
     g.set_yscale('log')
 
-    # fig.subplots_adjust(right = 1000)
-    # fig.subplots_adjust(top = 1000000)
-    # fig.subplots_adjust(left = 0)
-    # fig.subplots_adjust(bottom = -100000)
-
-    # seaborn.plt.title(option)
-    # seaborn.plt
-    # fig.subplots_adjust(right = 1)
-    # fig.subplots_adjust(left = 0)
     seaborn.plt.tight_layout()
-
-    seaborn.plt.savefig(output_dir + "/" + option + ".png")
+    seaborn.plt.savefig(output_dir + "/" + option + ".png", dpi=300)
     seaborn.plt.close()
-    # fig.savefig("report_" + option + ".png")
-
-    # pl.set_xticklabels(rotation=30)
-    # axes.bar(range(len(option_values)), option_value_losses)
-    # plt.title(option)
-    # plt.plot(option_values, option_value_losses)
-
-
-
-# fig
-# seaborn.plt.show()
