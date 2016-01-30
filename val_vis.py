@@ -23,7 +23,6 @@ def mean(l):
 
 networks = {}
 for name in sys.stdin:
-    print(name)
     network_name = name.strip()
     # print(network_name)
     opt_path = "networks/" + network_name + "/opt.txt"
