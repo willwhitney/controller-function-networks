@@ -34,7 +34,7 @@ jobs = []
 noise_options = [0.01, 0.1]
 sharpening_rate_options = [1, 10]
 lr_decay_options = [0.97]
-function_lr_options = [1e-3, 2e-3]
+function_lr_options = [1e-2]
 all_metadata_controller_options = [True, False]
 metadata_only_controller_options = [True, False]
 
