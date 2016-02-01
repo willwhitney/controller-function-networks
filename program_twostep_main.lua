@@ -28,7 +28,11 @@ cmd:option('-rnn_size', 10, 'size of LSTM internal state')
 cmd:option('-layer_size', 10, 'size of the layers')
 cmd:option('-num_layers', 1, 'number of layers in the LSTM')
 cmd:option('-model', 'scheduled_sharpening', 'cf or sampling')
-cmd:option('-criterion', 'L2', 'L2 or L1') -- used for sampling
+cmd:option('-metadata_only_controller', false, 'determines whether controller should get metadata and input, or only metadata')
+cmd:option('-all_metadata_controller', false, 'determines whether controller gets all metadata at once instead of one step at a time')
+
+
+cmd:option('-criterion', 'L2', 'L2 or L1') -- used only for sampling
 
 
 cmd:option('-sharpening_rate', 10, 'the slope (per 10K iterations) for the sharpening exponent')
@@ -128,7 +132,7 @@ loader = ProgramBatchLoader.create(opt.data_file, opt.batch_size, split_sizes)
 if opt.model == 'cf' then
     require 'IIDCF_meta'
     model = nn.IIDCFNetwork({
-            input_dimension = opt.num_primitives + 10,
+            num_primitives = opt.num_primitives,
             encoded_dimension = 10,
             num_functions = opt.num_functions,
             controller_units_per_layer = opt.rnn_size,
@@ -142,7 +146,7 @@ if opt.model == 'cf' then
 elseif opt.model == 'sharpening' then
     require 'IIDCF_meta'
     model = nn.IIDCFNetwork({
-            input_dimension = opt.num_primitives + 10,
+            num_primitives = opt.num_primitives,
             encoded_dimension = 10,
             num_functions = opt.num_functions,
             controller_units_per_layer = opt.rnn_size,
@@ -156,7 +160,7 @@ elseif opt.model == 'sharpening' then
 elseif opt.model == 'scheduled_sharpening' then
     require 'IIDCF_meta'
     model = nn.IIDCFNetwork({
-            input_dimension = opt.num_primitives + 10,
+            num_primitives = opt.num_primitives,
             encoded_dimension = 10,
             num_functions = opt.num_functions,
             controller_units_per_layer = opt.rnn_size,
@@ -167,6 +171,8 @@ elseif opt.model == 'scheduled_sharpening' then
             function_nonlinearity = opt.function_nonlinearity,
             controller_type = 'scheduled_sharpening',
             controller_noise = opt.noise,
+            all_metadata_controller = opt.all_metadata_controller,
+            metadata_only_controller = opt.metadata_only_controller,
         })
 elseif opt.model == 'ff-controller' then
     require 'FF_IIDCF_meta'

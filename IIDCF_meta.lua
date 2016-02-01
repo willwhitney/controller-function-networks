@@ -19,9 +19,23 @@ function IIDCFNetwork:__init(options)
     -- if options.controller_nonlinearity ~= 'softmax' then
     --     print("Overriding controller nonlinearity with softmax.")
     -- end
+    self.options = options
+    self.steps_per_output = options.steps_per_output or 1
+
+    local controller_input_dim = 0
+    if options.all_metadata_controller then
+        controller_input_dim = options.num_primitives * self.steps_per_output
+    else
+        controller_input_dim = options.num_primitives
+    end
+
+    if not options.metadata_only_controller then
+        controller_input_dim = controller_input_dim + options.encoded_dimension
+    end
+
     if options.controller_type == 'sharpening' then
         self.controller = nn.SharpeningController(
-            options.input_dimension, -- needs to look at the whole input
+            controller_input_dim,
             options.num_functions, -- outputs a weighting over all the functions
             options.controller_units_per_layer,
             options.controller_num_layers,
@@ -29,7 +43,7 @@ function IIDCFNetwork:__init(options)
             options.controller_nonlinearity )
     elseif options.controller_type == 'scheduled_sharpening' then
         self.controller = nn.ScheduledSharpeningController(
-            options.input_dimension, -- needs to look at the whole input
+            controller_input_dim,
             options.num_functions, -- outputs a weighting over all the functions
             options.controller_units_per_layer,
             options.controller_num_layers,
@@ -38,7 +52,7 @@ function IIDCFNetwork:__init(options)
             options.controller_noise )
     else
         self.controller = nn.Controller(
-            options.input_dimension, -- needs to look at the whole input
+            controller_input_dim,
             options.num_functions, -- outputs a weighting over all the functions
             options.controller_units_per_layer,
             options.controller_num_layers,
@@ -46,7 +60,7 @@ function IIDCFNetwork:__init(options)
             options.controller_nonlinearity )
     end
 
-    self.steps_per_output = options.steps_per_output or 1
+
 
     self.functions = {}
     for i = 1, options.num_functions do
@@ -91,12 +105,15 @@ end
 
 function IIDCFNetwork:step(input)
     local controller_metadata, input_vector = table.unpack(input)
-    -- print("step info: ")
-    -- print(controller_metadata)
-    -- print(input_vector)
-    local controller_input = self.jointable:forward(input):clone()
+
+    local controller_input
+    if self.options.metadata_only_controller then
+        controller_input = controller_metadata:clone()
+    else
+        controller_input = self.jointable:forward(input):clone()
+    end
     local controller_output = self.controller:step(controller_input):clone()
-    -- print(controller_output)
+
     print('weights:', vis.simplestr(controller_output[1]))
 
     local temp = torch.zeros(#self.functions, input_vector:size(2))
@@ -126,14 +143,18 @@ function IIDCFNetwork:step(input)
 end
 
 function IIDCFNetwork:forward(input)
-    -- print("forward")
+    print(input)
     self:reset()
     local controller_metadata, input_vector = table.unpack(input)
-    -- print("input[1]: ", input[1])
     local next_input = input_vector
+
     for t = 1, self.steps_per_output do
-        -- print("controller_metadata[t]: ", controller_metadata[t])
-        local step_controller_metadata = controller_metadata[t]:reshape(1, controller_metadata[t]:size(1))
+        local step_controller_metadata
+        if self.options.all_metadata_controller then
+            step_controller_metadata = controller_metadata:reshape(1, controller_metadata:nElement())
+        else
+            step_controller_metadata = controller_metadata[t]:reshape(1, controller_metadata[t]:size(1))
+        end
         next_input = self:step({step_controller_metadata, next_input}):clone()
     end
 
@@ -150,31 +171,28 @@ function IIDCFNetwork:updateGradInput(input, gradOutput)
 end
 
 function IIDCFNetwork:backstep(t, gradOutput)
-    -- print(self.trace)
-    -- print(t, gradOutput)
     local step_trace = self.trace[t]
     local step_input = step_trace.input
 
     local controller_metadata, input_vector = table.unpack(step_input)
-    -- local grad_probs, grad_outputs = table.unpack(gradOutput)
-    local controller_input = self.jointable:forward(input)
+
+    local controller_input
+    if self.options.metadata_only_controller then
+        controller_input = controller_metadata:clone()
+    else
+        controller_input = self.jointable:forward(input):clone()
+    end
 
     local controller_step_trace = self.controller.trace[#self.controller.trace]
     local controller_output = controller_step_trace[#controller_step_trace].output
 
     -- forward the functions to guarantee correct operation
-    -- local function_outputs = torch.zeros(#self.functions, input_vector:size(2))
     local function_outputs = {}
     for i = 1, #self.functions do
         table.insert(function_outputs, self.functions[i]:forward(input_vector):clone())
-        -- local function_output = self.functions[i]:forward(input_vector):clone()[1]
-        -- function_outputs[i] = function_output
     end
-    -- print({controller_output, function_outputs})
+
     self.mixtable:forward({controller_output, function_outputs})
-    -- print("controller_output: ", controller_output)
-    -- print("function_outputs: ", function_outputs)
-    -- print("gradOutput: ", gradOutput)
     local grad_table = self.mixtable:backward(
             {controller_output, function_outputs},
             gradOutput)
@@ -183,8 +201,15 @@ function IIDCFNetwork:backstep(t, gradOutput)
     local grad_function_outputs = grad_table[2]
 
     local grad_controller_input = self.controller:backstep(controller_input, grad_controller_output):clone()
-    local grad_input_table = self.jointable:backward(step_input, grad_controller_input)
-
+    local grad_input_table
+    if self.options.metadata_only_controller then
+        grad_input_table = {
+                grad_controller_input,
+                torch.zeros(input_vector:size()),
+            }
+    else
+        grad_input_table = self.jointable:backward(step_input, grad_controller_input)
+    end
     -- ^ yields a table of form {grad_controller_metadata, grad_input_vector}
 
     -- print(grad_outputs)
@@ -211,7 +236,11 @@ function IIDCFNetwork:backward(input, gradOutput)
     for t = self.steps_per_output, 1, -1 do
         local current_gradInput = self:backstep(t, current_gradOutput)
         current_gradOutput = current_gradInput[2]
-        self.gradInput[1][t] = current_gradInput[1]
+        if self.options.all_metadata_controller then
+            self.gradInput[1] = self.gradInput[1] + current_gradInput[1]
+        else
+            self.gradInput[1][t] = current_gradInput[1]
+        end
 
         -- pop this timestep from our stack
         -- self.trace[t] = nil

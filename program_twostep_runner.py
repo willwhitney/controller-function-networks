@@ -31,24 +31,29 @@ base_networks = {
 
 jobs = []
 
-noise_options = [0, 0.01, 0.1]
-sharpening_rate_options = [0, 1, 10]
-lr_decay_options = [1, 0.999, 0.97]
-function_lr_options = [1e-3, 1e-2, 2e-2]
+noise_options = [0.01, 0.1]
+sharpening_rate_options = [1, 10]
+lr_decay_options = [0.97]
+function_lr_options = [1e-3, 2e-3]
+all_metadata_controller_options = ['true', 'false']
+metadata_only_controller_options = ['true', 'false']
 
 # jobs with feedforward controller, one metadata step at a time
 for noise in noise_options:
     for sharpening_rate in sharpening_rate_options:
         for lr_decay in lr_decay_options:
             for function_lr in function_lr_options:
-                job = {
-                        "model": "ff-controller",
-                        "noise": noise,
-                        "sharpening_rate": sharpening_rate,
-                        "learning_rate_decay": lr_decay,
-                        "function_learning_rate": function_lr,
-                    }
-                jobs.append(job)
+                for all_metadata_controller in all_metadata_controller_options:
+                    for metadata_only_controller in metadata_only_controller_options:
+                        job = {
+                                "model": "scheduled_sharpening",
+                                "noise": noise,
+                                "sharpening_rate": sharpening_rate,
+                                "learning_rate_decay": lr_decay,
+                                "all_metadata_controller": all_metadata_controller,
+                                "metadata_only_controller": metadata_only_controller,
+                            }
+                        jobs.append(job)
 
 # jobs = []
 #

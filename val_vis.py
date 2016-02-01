@@ -14,7 +14,7 @@ import argparse
 parser = argparse.ArgumentParser(description='Plot dem results.')
 parser.add_argument('--name', default='default')
 # parser.add_argument('--keep_losers', default=False)
-parser.add_argument('--keep_losers', action='store_true', default=False)
+parser.add_argument('--hide_losers', action='store_true', default=False)
 parser.add_argument('--loser_threshold', default=1)
 args = parser.parse_args()
 
@@ -72,7 +72,7 @@ for network_name in networks:
 
 networks = new_networks
 
-if not args.keep_losers:
+if args.hide_losers:
     new_networks = {}
     for network_name in networks:
         network = networks[network_name]
@@ -122,17 +122,17 @@ for option in diff_options:
     per_option_loss_lists[option] = option_loss_lists
 
 
-per_option_mean_losses = {}
-for option in per_option_loss_lists:
-    per_value_mean_losses = {}
-    for option_value in per_option_loss_lists[option]:
-        loss_lists = per_option_loss_lists[option][option_value]
-
-        last_losses = [losses[-1] for losses in loss_lists]
-        mean_loss = mean(last_losses)
-        per_value_mean_losses[option_value] = mean_loss
-
-    per_option_mean_losses[option] = per_value_mean_losses
+# per_option_mean_losses = {}
+# for option in per_option_loss_lists:
+#     per_value_mean_losses = {}
+#     for option_value in per_option_loss_lists[option]:
+#         loss_lists = per_option_loss_lists[option][option_value]
+#
+#         last_losses = [losses[-1] for losses in loss_lists]
+#         mean_loss = mean(last_losses)
+#         per_value_mean_losses[option_value] = mean_loss
+#
+#     per_option_mean_losses[option] = per_value_mean_losses
 
 per_option_last_losses = {}
 for option in per_option_loss_lists:
