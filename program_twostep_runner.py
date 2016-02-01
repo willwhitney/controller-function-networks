@@ -34,7 +34,7 @@ jobs = []
 noise_options = [0.01, 0.1]
 sharpening_rate_options = [1, 10]
 lr_decay_options = [0.97]
-function_lr_options = [1e-2]
+function_lr_options = [1e-3, 3e-3, 1e-2]
 all_metadata_controller_options = [True, False]
 metadata_only_controller_options = [True, False]
 
@@ -50,6 +50,7 @@ for noise in noise_options:
                                 "noise": noise,
                                 "sharpening_rate": sharpening_rate,
                                 "learning_rate_decay": lr_decay,
+                                "function_learning_rate": function_lr,
                                 "all_metadata_controller": all_metadata_controller,
                                 "metadata_only_controller": metadata_only_controller,
                             }
