@@ -96,7 +96,7 @@ else:
     print "Starting jobs:"
 
 for job in jobs:
-    jobname = "twostep"
+    jobname = "twostep_metadata"
     flagstring = ""
     for flag in job:
         if isinstance(job[flag], bool):
