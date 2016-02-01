@@ -148,10 +148,13 @@ if not os.path.exists(output_dir):
 
 for option in per_option_last_losses:
 
-    fig = seaborn.plt.figure(figsize=(15,10))
+    if option == 'name' or option == 'import':
+        fig = seaborn.plt.figure(figsize=(15,15))
+    else:
+        fig = seaborn.plt.figure(figsize=(15,10))
     fig.add_subplot()
 
-    df = pd.DataFrame(columns=["option", "option_value", "loss"])
+    df = pd.DataFrame(columns=["option", option, "loss"])
     i = 0
     for option_value in per_option_last_losses[option]:
         for value in per_option_last_losses[option][option_value]:
@@ -160,9 +163,14 @@ for option in per_option_last_losses:
 
     # seaborn.set(font_scale=0.5)
     print(df)
-    g = seaborn.swarmplot(data=df, x="option_value", y="loss")
-    for item in g.get_xticklabels():
-        item.set_fontsize(5)
+    if option == 'name':
+        g = seaborn.barplot(data=df, x=option, y="loss")
+    else:
+        g = seaborn.swarmplot(data=df, x=option, y="loss")
+
+    if option == 'name' or option == 'import':
+        for item in g.get_xticklabels():
+            item.set_fontsize(5)
 
 
     seaborn.plt.xticks(rotation=90)
@@ -170,5 +178,5 @@ for option in per_option_last_losses:
     g.set_yscale('log')
 
     seaborn.plt.tight_layout()
-    seaborn.plt.savefig(output_dir + "/" + option + ".png", dpi=300)
+    seaborn.plt.savefig(output_dir + "/" + option + ".pdf", dpi=300)
     seaborn.plt.close()
