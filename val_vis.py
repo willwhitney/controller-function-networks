@@ -13,7 +13,8 @@ import argparse
 
 parser = argparse.ArgumentParser(description='Plot dem results.')
 parser.add_argument('--name', default='default')
-parser.add_argument('--keep_losers', default=False)
+# parser.add_argument('--keep_losers', default=False)
+parser.add_argument('--keep_losers', action='store_true', default=False)
 parser.add_argument('--loser_threshold', default=1)
 args = parser.parse_args()
 
@@ -166,7 +167,8 @@ for option in per_option_last_losses:
     if option == 'name':
         g = seaborn.barplot(data=df, x=option, y="loss")
     else:
-        g = seaborn.swarmplot(data=df, x=option, y="loss")
+        g = seaborn.boxplot(data=df, x=option, y="loss")
+        seaborn.stripplot(data=df, x=option, y="loss", ax=g, color="black")
 
     if option == 'name' or option == 'import':
         for item in g.get_xticklabels():
