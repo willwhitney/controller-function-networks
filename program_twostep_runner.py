@@ -35,8 +35,8 @@ noise_options = [0.01, 0.1]
 sharpening_rate_options = [1, 10]
 lr_decay_options = [0.97]
 function_lr_options = [1e-3, 2e-3]
-all_metadata_controller_options = ['true', 'false']
-metadata_only_controller_options = ['true', 'false']
+all_metadata_controller_options = [True, False]
+metadata_only_controller_options = [True, False]
 
 # jobs with feedforward controller, one metadata step at a time
 for noise in noise_options:
